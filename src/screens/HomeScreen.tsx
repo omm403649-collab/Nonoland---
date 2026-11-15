@@ -1,0 +1,554 @@
+import React, { useState } from 'react';
+import { motion } from 'motion/react';
+import {
+  Award,
+  BookOpen,
+  ClipboardCheck,
+  Compass,
+  FlaskConical,
+  Gamepad2,
+  GraduationCap,
+  HeartHandshake,
+  Palette,
+  Play,
+  Sparkles,
+  Star,
+  Volume2,
+} from 'lucide-react';
+import storyForestImg from '../assets/images/story_enchanted_forest_1794739849090.jpg';
+import { NonoCharacter } from '../components/NonoCharacter';
+import { useNonoLand } from '../context/NonoLandContext';
+import { GAME_ACTIVITIES, getActivityById } from '../data/activities';
+import { DAILY_MISSIONS } from '../data/rewardsAndRoom';
+import { getWorldById, LEARNING_WORLDS } from '../data/worlds';
+import { getAdaptiveRecommendation } from '../engine/adaptiveEngine';
+import { AGE_GROUP_META, formatNumber, t, UI_COPY } from '../i18n/translations';
+import { NonoMood } from '../types/nonoland';
+import { soundEngine } from '../utils/soundEngine';
+
+export const HomeScreen: React.FC = () => {
+  const { activeChild, language, navigate } = useNonoLand();
+  const [nonoMood, setNonoMood] = useState<NonoMood>('waving');
+
+  const recommendation = getAdaptiveRecommendation(activeChild);
+  const recWorld = getWorldById(recommendation.worldId);
+  const recentActivity = activeChild.recentActivityId
+    ? getActivityById(activeChild.recentActivityId)
+    : undefined;
+  const ageMeta = AGE_GROUP_META[activeChild.ageGroup];
+  const ageActivities = GAME_ACTIVITIES.filter((a) =>
+    a.ageEligibility.includes(activeChild.ageGroup),
+  );
+
+  // Personalized Nono greeting remembering favorite world & recent adventure
+  const favWorld = activeChild.favoriteWorldId ? getWorldById(activeChild.favoriteWorldId) : null;
+  const nonoGreeting = (() => {
+    if (activeChild.ageGroup === '3-4') {
+      return language === 'ar'
+        ? `أهلاً يا ${activeChild.displayName}! اضغط على بالونة أو حيوان لنلعب معاً!`
+        : `Hi ${activeChild.displayName}! Tap any big picture to play and hear sounds!`;
+    }
+    if (activeChild.ageGroup === '5-6') {
+      return language === 'ar'
+        ? `مرحباً يا ${activeChild.displayName}! ${favWorld ? `أعلم أنك تحب ${favWorld.name.ar}، ` : ''}هل أنت جاهز لمغامرة اليوم؟`
+        : `Welcome back, ${activeChild.displayName}! ${favWorld ? `I remember you enjoy ${favWorld.name.en}! ` : ''}Ready for today's adventure?`;
+    }
+    if (activeChild.ageGroup === '7') {
+      return language === 'ar'
+        ? `أهلاً بالمحقق ${activeChild.displayName}! لدينا مهمة ذكية بانتظارك في ${recWorld.name.ar}.`
+        : `Welcome, Detective ${activeChild.displayName}! A new logic & discovery quest awaits in ${recWorld.name.en}.`;
+    }
+    return language === 'ar'
+      ? `مرحباً بالقائد ${activeChild.displayName}! مستعد لمهام العلوم والرياضيات والتحديات المتقدمة؟`
+      : `Welcome, Explorer ${activeChild.displayName}! Ready for multi-stage math, science & creative missions?`;
+  })();
+
+  const handleNonoTap = () => {
+    const moods: NonoMood[] = ['excited', 'jumping', 'dancing', 'waving'];
+    setNonoMood(moods[Math.floor(Math.random() * moods.length)]);
+    soundEngine.speak(nonoGreeting, language);
+  };
+
+  return (
+    <div className="space-y-7">
+      {/* HERO STAGE: Personalized Magical Welcome + Nono Companion */}
+      <section className="relative rounded-[2rem] overflow-hidden border-2 border-[#27345C]/10 shadow-lg bg-gradient-to-br from-[#8054D9] via-[#6645C9] to-[#39BDF2] text-white p-6 sm:p-8">
+        <div className="absolute inset-0 opacity-20 pointer-events-none">
+          <img
+            src={storyForestImg}
+            alt=""
+            className="w-full h-full object-cover mix-blend-overlay"
+            referrerPolicy="no-referrer"
+          />
+        </div>
+
+        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+          <div className="lg:col-span-8 space-y-4">
+            <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm font-bold text-[#FFD84D]">
+              <span>{t(ageMeta.badgeTitle, language)}</span>
+              <span aria-hidden="true">·</span>
+              <span>{t(ageMeta.label, language)}</span>
+              <span aria-hidden="true">·</span>
+              <span className="tabular-nums">
+                {t(UI_COPY.home.levelLabel, language)} {formatNumber(activeChild.level, language)}
+              </span>
+            </div>
+
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold leading-tight text-balance">
+              {language === 'ar'
+                ? `مرحباً يا ${activeChild.displayName} في عالمك السحري!`
+                : `Welcome to your world, ${activeChild.displayName}!`}
+            </h1>
+
+            <p className="text-white/90 text-base sm:text-lg max-w-2xl leading-relaxed">
+              {nonoGreeting}
+            </p>
+
+            {/* Primary Hero Actions */}
+            <div className="flex flex-wrap gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() =>
+                  navigate('game', {
+                    worldId: recommendation.worldId,
+                    activityId: recommendation.activity.id,
+                  })
+                }
+                className="nono-btn-tactile h-14 px-6 rounded-2xl bg-[#FFD84D] text-[#27345C] font-extrabold text-base flex items-center gap-2.5 cursor-pointer"
+              >
+                <Play className="w-5 h-5 fill-[#27345C]" />
+                <span>
+                  {recentActivity
+                    ? t(UI_COPY.home.continueAdventure, language)
+                    : t(UI_COPY.startAdventure, language)}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('map')}
+                className="h-14 px-5 rounded-2xl bg-white/18 hover:bg-white/28 border border-white/30 text-white font-bold flex items-center gap-2 cursor-pointer transition-colors"
+              >
+                <Compass className="w-5 h-5 text-[#FFD84D]" />
+                <span>{t(UI_COPY.home.exploreWorlds, language)}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => soundEngine.speak(nonoGreeting, language)}
+                className="h-14 px-4 rounded-2xl bg-white/15 hover:bg-white/25 border border-white/25 text-white font-bold flex items-center gap-2 cursor-pointer transition-colors"
+              >
+                <Volume2 className="w-5 h-5" />
+                <span className="hidden sm:inline">{t(UI_COPY.home.listenToNono, language)}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="lg:col-span-4 flex flex-col items-center justify-center">
+            <NonoCharacter
+              mood={nonoMood}
+              scarfColor={activeChild.companionScarfColor}
+              size="lg"
+              language={language}
+              onTap={handleNonoTap}
+            />
+            <span className="mt-2 text-xs font-bold text-white/85">
+              {language === 'ar' ? 'اضغط على نونو للتفاعل!' : 'Tap Nono to say hello!'}
+            </span>
+          </div>
+        </div>
+      </section>
+
+      {/* FEATURED HUBS: LEARNING ACADEMY, OFFICIAL EXAMS & FUN ZONE */}
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <button
+          type="button"
+          onClick={() => navigate('academy')}
+          className="nono-card rounded-3xl p-5 sm:p-6 text-start bg-gradient-to-br from-[#F3E8FF] via-white to-[#E5F6FF] border-2 border-[#8054D9]/20 hover:border-[#8054D9] transition-all cursor-pointer flex items-center justify-between gap-4"
+        >
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-extrabold text-[#8054D9]">
+              <GraduationCap className="w-4 h-4" />
+              <span>{language === 'ar' ? 'رحلات تعليمية عميقة' : 'Deep Multi-Stage Learning'}</span>
+            </div>
+            <h2 className="text-xl font-extrabold text-[#27345C]">
+              {language === 'ar' ? 'أكاديمية نونو للتعلّم' : "Nono's Learning Academy"}
+            </h2>
+            <p className="text-xs sm:text-sm text-[#27345C]/75">
+              {language === 'ar'
+                ? 'رحلات ١٠–١١ مرحلة للألوان والحروف والرياضيات، تتبع باللمس ومختبر الألوان!'
+                : '10–11 stage concept journeys for colors, Arabic & English letters, math & tracing!'}
+            </p>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-[#8054D9] text-white flex items-center justify-center text-2xl shrink-0 shadow-md">
+            🎓
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigate('exams')}
+          className="nono-card rounded-3xl p-5 sm:p-6 text-start bg-gradient-to-br from-[#FFF3D1] via-white to-[#E2F9EC] border-2 border-[#FFD84D]/50 hover:border-[#FF9360] transition-all cursor-pointer flex items-center justify-between gap-4"
+        >
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-extrabold text-[#FF9360]">
+              <ClipboardCheck className="w-4 h-4" />
+              <span>{language === 'ar' ? '٤٠ سؤالاً · شهادة معتمدة' : '40 Questions · Verified Certificate'}</span>
+            </div>
+            <h2 className="text-xl font-extrabold text-[#27345C]">
+              {language === 'ar' ? 'اختبارات نونو الرسمية' : 'NonoLand Official Exams'}
+            </h2>
+            <p className="text-xs sm:text-sm text-[#27345C]/75">
+              {language === 'ar'
+                ? 'تدريب مجاني أو امتحان رسمي من ٤٠ سؤالاً (نسبة النجاح ٧٠٪) مع شهادة برمز تحقق!'
+                : 'Free practice or 40-question official assessment (70% pass) with verified certificate!'}
+            </p>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-[#FF9360] text-white flex items-center justify-center text-2xl shrink-0 shadow-md">
+            🏅
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigate('fun-zone')}
+          className="nono-card rounded-3xl p-5 sm:p-6 text-start bg-gradient-to-br from-[#FFE6F2] via-white to-[#FFF3D1] border-2 border-[#FF78B7]/25 hover:border-[#FF78B7] transition-all cursor-pointer flex items-center justify-between gap-4"
+        >
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-extrabold text-[#FF4D6D]">
+              <Gamepad2 className="w-4 h-4" />
+              <span>{language === 'ar' ? 'نونو ولولو وليو وبوبو وإيلي وتيتي' : 'Nono, Lolo, Leo, Bobo, Ellie & Titi'}</span>
+            </div>
+            <h2 className="text-xl font-extrabold text-[#27345C]">
+              {language === 'ar' ? 'منطقة المرح ويوتيوب الآمن' : "Nono's Fun Zone & YouTube"}
+            </h2>
+            <p className="text-xs sm:text-sm text-[#27345C]/75">
+              {language === 'ar'
+                ? 'ألعاب، فرقة موسيقية، مسرح مضحك، تلبيس الأبطال، وفيديوهات معتمدة!'
+                : 'Mini games, dance band, comedy skits, dress-up studio & parent-approved videos!'}
+            </p>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-[#FF78B7] text-white flex items-center justify-center text-2xl shrink-0 shadow-md">
+            🎪
+          </div>
+        </button>
+      </section>
+
+      {/* AGE-SPECIFIC EXPERIENCE SECTION */}
+      {activeChild.ageGroup === '3-4' ? (
+        /* AGE 3-4: Large Visual Playground Tiles — Zero reading required */
+        <section aria-label="Playful Playground" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-extrabold text-[#27345C]">
+              {language === 'ar' ? 'اختر لعبة بصورتها الكبيرة!' : 'Tap a Big Picture to Play!'}
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              {
+                emoji: '🎈',
+                title: { ar: 'الألوان والبالونات', en: 'Red & Green Balloons' },
+                bg: 'from-[#FF78B7] to-[#FF9360]',
+                worldId: 'colors-shapes' as const,
+                actId: 'act-red-balloon-34',
+              },
+              {
+                emoji: '🐱',
+                title: { ar: 'أصوات الحيوانات', en: 'Animal Sounds' },
+                bg: 'from-[#55D98B] to-[#39BDF2]',
+                worldId: 'animal-jungle' as const,
+                actId: 'act-animal-sound-34',
+              },
+              {
+                emoji: '🍎',
+                title: { ar: 'عدّ التفاحات', en: 'Count Apples 1–5' },
+                bg: 'from-[#FFD84D] to-[#FF9360]',
+                worldId: 'numbers-kingdom' as const,
+                actId: 'act-count-apples-34',
+              },
+              {
+                emoji: '🎨',
+                title: { ar: 'ارسم ولون', en: 'Free Drawing' },
+                bg: 'from-[#8054D9] to-[#FF78B7]',
+                worldId: 'creativity-island' as const,
+                actId: 'act-free-drawing-all',
+              },
+            ].map((tile) => (
+              <motion.button
+                key={tile.actId}
+                type="button"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => {
+                  soundEngine.speak(t(tile.title, language), language);
+                  navigate('game', { worldId: tile.worldId, activityId: tile.actId });
+                }}
+                className={`nono-btn-tactile rounded-3xl p-6 bg-gradient-to-br ${tile.bg} text-white text-center flex flex-col items-center justify-center gap-3 min-h-[190px] cursor-pointer`}
+              >
+                <span className="text-6xl drop-shadow-sm">{tile.emoji}</span>
+                <span className="text-xl font-extrabold">{t(tile.title, language)}</span>
+              </motion.button>
+            ))}
+          </div>
+        </section>
+      ) : (
+        /* AGES 5-6, 7, 8: Adaptive Recommendation + Quick World Cards */
+        <section className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          {/* Adaptive Recommendation Card (7 cols) */}
+          <div className="lg:col-span-7 nono-card rounded-3xl p-6 flex flex-col justify-between">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-extrabold text-[#8054D9]">
+                  {t(UI_COPY.home.recommendedForYou, language)} · {t(recWorld.name, language)}
+                </span>
+                <span className="text-xs font-bold text-[#27345C]/60 tabular-nums">
+                  {recommendation.activity.estimatedMinutes} {language === 'ar' ? 'دقائق' : 'min'}
+                </span>
+              </div>
+
+              <div className="flex items-start gap-4">
+                <div
+                  className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl shrink-0 shadow-sm"
+                  style={{ backgroundColor: `${recWorld.primaryColor}20` }}
+                >
+                  {recWorld.guardianEmoji}
+                </div>
+                <div>
+                  <h2 className="text-2xl font-extrabold text-[#27345C]">
+                    {t(recommendation.activity.title, language)}
+                  </h2>
+                  <p className="text-sm text-[#27345C]/75 mt-1">
+                    {t(recommendation.reason, language)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 pt-4 border-t border-[#27345C]/10 flex flex-wrap items-center justify-between gap-3">
+              <span className="text-xs font-bold text-[#27345C]/65">
+                {t(recommendation.activity.objective, language)}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  navigate('game', {
+                    worldId: recommendation.worldId,
+                    activityId: recommendation.activity.id,
+                  })
+                }
+                className="nono-btn-tactile px-5 py-2.5 rounded-xl bg-[#8054D9] text-white font-bold text-sm flex items-center gap-2 cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>{t(UI_COPY.games.playNow, language)}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Age-Specific Highlight Hub (5 cols) */}
+          <div className="lg:col-span-5 nono-card rounded-3xl p-6 flex flex-col justify-between bg-gradient-to-br from-white to-[#FFF3D6]">
+            <div>
+              <h3 className="text-lg font-extrabold text-[#27345C] flex items-center gap-2">
+                <FlaskConical className="w-5 h-5 text-[#39BDF2]" />
+                <span>
+                  {activeChild.ageGroup === '5-6'
+                    ? language === 'ar'
+                      ? 'تحديات القراءة والأنماط'
+                      : 'Letters & Pattern Quests'
+                    : activeChild.ageGroup === '7'
+                      ? language === 'ar'
+                        ? 'مهام المحقق والعلوم'
+                        : 'Detective & Science Missions'
+                      : language === 'ar'
+                        ? 'تحديات القائد المتقدمة'
+                        : 'Master Explorer Challenges'}
+                </span>
+              </h3>
+              <p className="text-sm text-[#27345C]/75 mt-1">
+                {language === 'ar'
+                  ? `لديك ${formatNumber(ageActivities.length, language)} نشاطاً مخصصاً لفئة ${t(ageMeta.label, language)}`
+                  : `${formatNumber(ageActivities.length, language)} activities tailored specifically for ${t(ageMeta.label, language)}`}
+              </p>
+
+              <div className="mt-4 space-y-2">
+                {ageActivities.slice(0, 3).map((act) => (
+                  <button
+                    key={act.id}
+                    type="button"
+                    onClick={() => navigate('game', { worldId: act.worldId, activityId: act.id })}
+                    className="w-full p-2.5 rounded-xl bg-white hover:bg-[#39BDF2]/10 border border-[#27345C]/10 flex items-center justify-between text-start transition-colors cursor-pointer"
+                  >
+                    <span className="font-bold text-sm text-[#27345C] truncate">
+                      {t(act.title, language)}
+                    </span>
+                    <span className="text-xs font-extrabold text-[#8054D9] shrink-0 ms-2">
+                      {t(UI_COPY.games.playNow, language)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => navigate('discovery-lab')}
+              className="mt-4 w-full py-2.5 rounded-xl bg-[#39BDF2]/20 hover:bg-[#39BDF2]/30 text-[#27345C] font-extrabold text-sm cursor-pointer transition-colors"
+            >
+              {t(UI_COPY.home.visitDiscoveryLab, language)}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* GENTLE DAILY DISCOVERIES + QUICK DESTINATIONS */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* Daily Discovery Missions (No punishment / No countdown!) */}
+        <div className="lg:col-span-6 nono-card rounded-3xl p-6 space-y-4">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h3 className="text-xl font-extrabold text-[#27345C]">
+                {t(UI_COPY.home.dailyDiscovery, language)}
+              </h3>
+              <p className="text-xs text-[#27345C]/65 mt-0.5">
+                {t(UI_COPY.home.noPressureNote, language)}
+              </p>
+            </div>
+            <HeartHandshake className="w-6 h-6 text-[#55D98B] shrink-0" />
+          </div>
+
+          <div className="space-y-2.5">
+            {DAILY_MISSIONS.map((mission) => {
+              const done = activeChild.completedActivityIds.includes(mission.targetActivityId);
+              return (
+                <button
+                  key={mission.id}
+                  type="button"
+                  onClick={() =>
+                    navigate('game', {
+                      worldId: mission.targetWorldId,
+                      activityId: mission.targetActivityId,
+                    })
+                  }
+                  className="w-full p-3.5 rounded-2xl bg-[#FFF8E9] hover:bg-[#FFD84D]/25 border border-[#27345C]/10 flex items-center justify-between gap-3 text-start transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">{mission.icon}</span>
+                    <div>
+                      <p className="font-bold text-sm text-[#27345C]">{t(mission.title, language)}</p>
+                      <p className="text-xs text-[#27345C]/65">{t(mission.description, language)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 text-xs font-extrabold shrink-0">
+                    <Star className="w-4 h-4 fill-[#FFD84D] text-[#FF9360]" />
+                    <span className="tabular-nums">+{mission.rewardStars}</span>
+                    {done && (
+                      <span className="ms-1 text-[#55D98B]">✓</span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* My World / My Room / Stories / Achievements Shortcuts */}
+        <div className="lg:col-span-6 grid grid-cols-2 gap-4">
+          <button
+            type="button"
+            onClick={() => navigate('map')}
+            className="nono-card rounded-3xl p-5 text-start hover:border-[#39BDF2] transition-colors cursor-pointer flex flex-col justify-between"
+          >
+            <Compass className="w-8 h-8 text-[#39BDF2]" />
+            <div className="mt-4">
+              <p className="font-extrabold text-lg text-[#27345C]">{t(UI_COPY.nav.map, language)}</p>
+              <p className="text-xs text-[#27345C]/70 mt-0.5">
+                {language === 'ar' ? '١٠ عوالم تعليمية متحركة' : '10 interactive worlds'}
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('my-room')}
+            className="nono-card rounded-3xl p-5 text-start hover:border-[#FF78B7] transition-colors cursor-pointer flex flex-col justify-between"
+          >
+            <Palette className="w-8 h-8 text-[#FF78B7]" />
+            <div className="mt-4">
+              <p className="font-extrabold text-lg text-[#27345C]">{t(UI_COPY.nav.room, language)}</p>
+              <p className="text-xs text-[#27345C]/70 mt-0.5">
+                {language === 'ar'
+                  ? `${formatNumber(activeChild.unlockedRoomItems.length, language)} عناصر متاحة`
+                  : `${activeChild.unlockedRoomItems.length} unlocked items`}
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('stories')}
+            className="nono-card rounded-3xl p-5 text-start hover:border-[#55D98B] transition-colors cursor-pointer flex flex-col justify-between"
+          >
+            <BookOpen className="w-8 h-8 text-[#55D98B]" />
+            <div className="mt-4">
+              <p className="font-extrabold text-lg text-[#27345C]">{t(UI_COPY.nav.stories, language)}</p>
+              <p className="text-xs text-[#27345C]/70 mt-0.5">
+                {language === 'ar' ? 'قصص باختياراتك الخاصة' : 'Branching interactive stories'}
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('achievements')}
+            className="nono-card rounded-3xl p-5 text-start hover:border-[#FFD84D] transition-colors cursor-pointer flex flex-col justify-between"
+          >
+            <Award className="w-8 h-8 text-[#FF9360]" />
+            <div className="mt-4">
+              <p className="font-extrabold text-lg text-[#27345C]">{t(UI_COPY.nav.achievements, language)}</p>
+              <p className="text-xs text-[#27345C]/70 mt-0.5">
+                {language === 'ar'
+                  ? `${formatNumber(activeChild.certificates.length, language)} شهادات · ${formatNumber(activeChild.unlockedBadges.length, language)} أوسمة`
+                  : `${activeChild.certificates.length} certificates · ${activeChild.unlockedBadges.length} badges`}
+              </p>
+            </div>
+          </button>
+        </div>
+      </section>
+
+      {/* MINI WORLD PREVIEW STRIP */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xl font-extrabold text-[#27345C]">
+            {language === 'ar' ? 'اكتشف الجزر التعليمية' : 'Jump Into Any Learning Island'}
+          </h3>
+          <button
+            type="button"
+            onClick={() => navigate('map')}
+            className="text-sm font-bold text-[#8054D9] hover:underline cursor-pointer"
+          >
+            {language === 'ar' ? 'عرض الخريطة الكاملة' : 'Open Full Map'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {LEARNING_WORLDS.slice(0, 5).map((world) => (
+            <button
+              key={world.id}
+              type="button"
+              onClick={() => navigate('world-detail', { worldId: world.id })}
+              className="nono-card rounded-2xl p-4 text-start hover:-translate-y-0.5 transition-transform cursor-pointer"
+            >
+              <div className="text-3xl mb-2">{world.guardianEmoji}</div>
+              <p className="font-extrabold text-sm text-[#27345C] leading-snug">
+                {t(world.name, language)}
+              </p>
+              <p className="text-xs text-[#27345C]/65 mt-1 truncate">
+                {t(world.subtitle, language)}
+              </p>
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+};

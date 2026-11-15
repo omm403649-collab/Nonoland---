@@ -1,0 +1,131 @@
+import React from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { AppShell } from './components/AppShell';
+import { CelebrationOverlay } from './components/CelebrationOverlay';
+import { NonoLandProvider, useNonoLand } from './context/NonoLandContext';
+import { AchievementsScreen } from './screens/AchievementsScreen';
+import { AcademyScreen } from './screens/AcademyScreen';
+import { AdminDashboardScreen } from './screens/AdminDashboardScreen';
+import { AdventureMapScreen, WorldDetailScreen } from './screens/AdventureMapScreen';
+import { AssessmentResultsScreen, DiscoveryLabScreen } from './screens/DiscoveryLabScreen';
+import { ExamsScreen } from './screens/ExamsScreen';
+import { FunZoneScreen } from './screens/FunZoneScreen';
+import { GameArenaScreen, GameResultsScreen } from './screens/GameArenaScreen';
+import { HomeScreen } from './screens/HomeScreen';
+import { MyRoomScreen } from './screens/MyRoomScreen';
+import { ParentDashboardScreen } from './screens/ParentDashboardScreen';
+import { TeacherDashboardScreen } from './screens/TeacherDashboardScreen';
+import {
+  ChildWelcomeScreen,
+  CreateChildScreen,
+  OnboardingScreen,
+  ParentAuthScreen,
+  SplashScreen,
+} from './screens/SplashAndOnboarding';
+import { StoriesScreen, StoryReaderScreen } from './screens/StoriesScreen';
+
+const ScreenRouter: React.FC = () => {
+  const { screen } = useNonoLand();
+
+  const fullBleedScreens = [
+    'splash',
+    'onboarding',
+    'parent-auth',
+    'create-child',
+    'child-welcome',
+  ];
+
+  const renderScreen = () => {
+    switch (screen) {
+      case 'splash':
+        return <SplashScreen />;
+      case 'onboarding':
+        return <OnboardingScreen />;
+      case 'parent-auth':
+        return <ParentAuthScreen />;
+      case 'create-child':
+        return <CreateChildScreen />;
+      case 'child-welcome':
+        return <ChildWelcomeScreen />;
+      case 'baseline-assessment':
+        return <DiscoveryLabScreen isBaseline />;
+      case 'home':
+        return <HomeScreen />;
+      case 'academy':
+        return <AcademyScreen />;
+      case 'exams':
+        return <ExamsScreen />;
+      case 'fun-zone':
+        return <FunZoneScreen />;
+      case 'map':
+        return <AdventureMapScreen />;
+      case 'world-detail':
+        return <WorldDetailScreen />;
+      case 'game':
+        return <GameArenaScreen />;
+      case 'game-results':
+        return <GameResultsScreen />;
+      case 'discovery-lab':
+        return <DiscoveryLabScreen />;
+      case 'assessment-results':
+        return <AssessmentResultsScreen />;
+      case 'stories':
+        return <StoriesScreen />;
+      case 'story-reader':
+        return <StoryReaderScreen />;
+      case 'my-room':
+        return <MyRoomScreen />;
+      case 'achievements':
+        return <AchievementsScreen />;
+      case 'parent-dashboard':
+        return <ParentDashboardScreen />;
+      case 'teacher-dashboard':
+        return <TeacherDashboardScreen />;
+      case 'admin-dashboard':
+        return <AdminDashboardScreen />;
+      default:
+        return <HomeScreen />;
+    }
+  };
+
+  if (fullBleedScreens.includes(screen)) {
+    return (
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={screen}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+        >
+          {renderScreen()}
+        </motion.div>
+      </AnimatePresence>
+    );
+  }
+
+  return (
+    <AppShell>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={screen}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        >
+          {renderScreen()}
+        </motion.div>
+      </AnimatePresence>
+      <CelebrationOverlay />
+    </AppShell>
+  );
+};
+
+export default function App() {
+  return (
+    <NonoLandProvider>
+      <ScreenRouter />
+    </NonoLandProvider>
+  );
+}
