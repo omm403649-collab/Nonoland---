@@ -9,6 +9,7 @@ import { getLevel1LessonById } from './src/data/level1Curriculum';
 import { getQuestionsForLevel1Lesson, LEVEL1_QUESTION_BANK } from './src/data/level1QuestionBank';
 import { createInitialSkillProgress } from './src/data/rewardsAndRoom';
 import {
+  DEFAULT_FEATURE_FLAGS,
   normalizeEmail,
   POLICY_VERSION,
   sanitizeShortText,
@@ -40,6 +41,7 @@ import {
   verifyPassword,
 } from './server/security';
 import type { AuthenticatedRequest, CheckoutSession, ServerDb, StoredChildRecord } from './server/dbTypes';
+import { registerGovernanceAndHomeworkRoutes } from './server/governanceAndHomeworkRoutes';
 import { registerTeacherAndLevel2Routes } from './server/teacherRoutes';
 import type {
   AgeGroupId,
@@ -75,6 +77,7 @@ function getDefaultDb(): ServerDb {
           ? 'live-gateway'
           : 'development-test-verification',
     },
+    featureFlags: { ...DEFAULT_FEATURE_FLAGS },
     users: {},
     emailIndex: {},
     sessions: {},
@@ -96,8 +99,19 @@ function getDefaultDb(): ServerDb {
     teacherExams: {},
     examAssignments: {},
     assignedExamAttempts: {},
+    homeworks: {},
+    homeworkSubmissions: {},
+    homeworkAttachments: {},
     importBatches: {},
     certificates: {},
+    processedSyncKeys: {},
+    operationalMetrics: {
+      totalApiRequests: 0,
+      apiFailures5xx: 0,
+      apiClientErrors4xx: 0,
+      syncFailures: 0,
+      lastErrors: [],
+    },
     securityLogs: [],
   };
 }
@@ -113,6 +127,10 @@ function loadDb(): ServerDb {
         examConfig: {
           ...def.examConfig,
           ...(parsed.examConfig || {}),
+        },
+        featureFlags: {
+          ...def.featureFlags,
+          ...(parsed.featureFlags || {}),
         },
         users: parsed.users || {},
         emailIndex: parsed.emailIndex || {},
@@ -134,8 +152,17 @@ function loadDb(): ServerDb {
         teacherExams: parsed.teacherExams || {},
         examAssignments: parsed.examAssignments || {},
         assignedExamAttempts: parsed.assignedExamAttempts || {},
+        homeworks: parsed.homeworks || {},
+        homeworkSubmissions: parsed.homeworkSubmissions || {},
+        homeworkAttachments: parsed.homeworkAttachments || {},
         importBatches: parsed.importBatches || {},
         certificates: parsed.certificates || {},
+        processedSyncKeys: parsed.processedSyncKeys || {},
+        operationalMetrics: {
+          ...def.operationalMetrics,
+          ...(parsed.operationalMetrics || {}),
+          lastErrors: parsed.operationalMetrics?.lastErrors || [],
+        },
         securityLogs: parsed.securityLogs || [],
       };
     }
@@ -194,6 +221,7 @@ async function startServer() {
 
   app.disable('x-powered-by');
   app.use(securityHeadersMiddleware);
+  app.use('/api/admin/ops/restore', express.json({ limit: '4mb' }));
   app.use(express.json({ limit: '512kb' }));
 
   // Clean 413 / 400 error handler for oversized or malformed JSON payloads
@@ -255,6 +283,25 @@ async function startServer() {
   ]);
 
   app.use('/api', (req: AuthenticatedRequest, res, next) => {
+    db.operationalMetrics.totalApiRequests = (db.operationalMetrics.totalApiRequests || 0) + 1;
+    res.on('finish', () => {
+      if (res.statusCode >= 500) {
+        db.operationalMetrics.apiFailures5xx = (db.operationalMetrics.apiFailures5xx || 0) + 1;
+        db.operationalMetrics.lastErrors.unshift({
+          route: `${req.method} ${req.originalUrl.split('?')[0]}`,
+          status: res.statusCode,
+          message: 'Server error response',
+          timestamp: new Date().toISOString(),
+        });
+        if (db.operationalMetrics.lastErrors.length > 25) db.operationalMetrics.lastErrors.length = 25;
+      } else if (res.statusCode >= 400) {
+        db.operationalMetrics.apiClientErrors4xx = (db.operationalMetrics.apiClientErrors4xx || 0) + 1;
+        if (req.originalUrl.includes('/sync')) {
+          db.operationalMetrics.syncFailures = (db.operationalMetrics.syncFailures || 0) + 1;
+        }
+      }
+    });
+
     const cookies = parseCookies(req.headers.cookie);
     const rawToken = cookies[SESSION_COOKIE_NAME];
 
@@ -1115,6 +1162,12 @@ async function startServer() {
   // 2. SECURE BACKEND PAYMENT CHECKOUT & VERIFICATION (50 EGP default)
   // ------------------------------------------------------------------
   app.post('/api/payments/create-checkout', (req: AuthenticatedRequest, res) => {
+    if (!db.featureFlags.paidAssessmentsEnabled) {
+      return res.status(403).json({
+        error: 'Paid assessments are currently disabled by administrator',
+        featureDisabled: 'paidAssessmentsEnabled',
+      });
+    }
     const { childId, subject, parentConfirmed } = req.body as {
       childId?: string;
       subject?: ExamSubject;
@@ -1379,7 +1432,7 @@ async function startServer() {
 
     let issuedCert: Certificate | undefined;
 
-    if (attempt.mode === 'official' && attempt.paymentVerified && passed) {
+    if (attempt.mode === 'official' && attempt.paymentVerified && passed && db.featureFlags.certificatesEnabled) {
       const uniqueCode = `NLC-${new Date().getFullYear()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
       const meta = subjectToWorld(attempt.subject);
       issuedCert = {
@@ -1713,6 +1766,17 @@ async function startServer() {
     createSessionForUser,
     revokeAllUserSessions,
     toSafeUser,
+  });
+
+  registerGovernanceAndHomeworkRoutes({
+    app,
+    getDb: () => db,
+    setDb: (next) => {
+      db = next;
+    },
+    saveDb,
+    requireAuth,
+    requireAdminPermission,
   });
 
   if (!IS_PROD) {

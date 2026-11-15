@@ -2,62 +2,208 @@ import { GAME_ACTIVITIES } from '../data/activities';
 import { LEARNING_WORLDS } from '../data/worlds';
 import { SKILL_LABELS } from '../i18n/translations';
 import {
+  AdaptiveDifficultyTier,
   AgeGroupId,
   ChildProfile,
   GameActivity,
   GameQuestion,
+  LocalizedText,
   ParentInsight,
   SkillId,
+  SkillProgress,
   WorldId,
+  LearningWorld,
 } from '../types/nonoland';
+
+export const SPACED_REVIEW_DAYS = [1, 3, 7, 14] as const;
 
 export interface AdaptiveRecommendation {
   activity: GameActivity;
   worldId: WorldId;
-  reason: { ar: string; en: string };
+  reason: LocalizedText;
   focusSkill: SkillId;
+  suggestedDifficulty: AdaptiveDifficultyTier;
+}
+
+/**
+ * Computes an adaptive skill update grounded in multi-evidence mastery:
+ * - Never marks a skill 'mastered' from 1 correct answer.
+ * - Requires sustained accuracy across multiple attempts (activities + assessments/unseen items).
+ * - Adjusts difficulty gradually (easy -> medium -> advanced) after sustained success.
+ * - Schedules non-punitive spaced repetition intervals (1d -> 3d -> 7d -> 14d).
+ */
+export function evaluateSkillUpdate(
+  prev: SkillProgress,
+  input: {
+    accuracy: number;
+    isAssessment?: boolean;
+    isUnseenCheck?: boolean;
+    isRetentionReview?: boolean;
+    nowIso?: string;
+  },
+): SkillProgress {
+  const nowIso = input.nowIso || new Date().toISOString();
+  const prevEvidence = prev.evidenceSummary || {
+    assessmentsCount: 0,
+    activitiesCount: 0,
+    unseenItemsCorrect: 0,
+    retentionPassed: false,
+  };
+
+  const totalAttempts = prev.attempts + 1;
+  const passed = input.accuracy >= 70;
+  const totalCorrect = prev.correctCount + (passed ? 1 : 0);
+  const avgAcc =
+    prev.attempts === 0
+      ? Math.round(input.accuracy)
+      : Math.round((prev.accuracy * prev.attempts + input.accuracy) / totalAttempts);
+
+  const nextStreak = passed ? prev.streak + 1 : 0;
+  const sustainedStreak = input.accuracy >= 75 ? (prev.sustainedStreak || 0) + 1 : Math.max(0, (prev.sustainedStreak || 0) - 1);
+
+  const nextEvidence = {
+    assessmentsCount: prevEvidence.assessmentsCount + (input.isAssessment ? 1 : 0),
+    activitiesCount: prevEvidence.activitiesCount + (input.isAssessment ? 0 : 1),
+    unseenItemsCorrect: prevEvidence.unseenItemsCorrect + (input.isUnseenCheck && passed ? 1 : 0),
+    retentionPassed: prevEvidence.retentionPassed || Boolean(input.isRetentionReview && passed),
+  };
+
+  // Gradual difficulty tier adjustments (requires sustained streak, never jumps on 1 try)
+  const currentTier: AdaptiveDifficultyTier = prev.difficultyTier || 'easy';
+  let nextTier: AdaptiveDifficultyTier = currentTier;
+  if (currentTier === 'easy' && sustainedStreak >= 2 && avgAcc >= 75) {
+    nextTier = 'medium';
+  } else if (currentTier === 'medium' && sustainedStreak >= 4 && avgAcc >= 85) {
+    nextTier = 'advanced';
+  } else if (input.accuracy < 55 && currentTier === 'advanced') {
+    nextTier = 'medium';
+  } else if (input.accuracy < 50 && currentTier === 'medium') {
+    nextTier = 'easy';
+  }
+
+  // Multi-evidence mastery rule: never mastered on 1 attempt!
+  let masteryLevel: SkillProgress['masteryLevel'] = 'exploring';
+  let masteryReason: LocalizedText = {
+    ar: 'بداية الاستكشاف — نواصل التدريب اللطيف لبناء الثقة.',
+    en: 'Early exploration — gentle practice continues to build confidence.',
+  };
+
+  const hasMultiEvidence =
+    totalAttempts >= 3 &&
+    (nextEvidence.assessmentsCount >= 1 || nextEvidence.activitiesCount >= 3 || nextEvidence.unseenItemsCorrect >= 1);
+
+  if (hasMultiEvidence && avgAcc >= 85 && totalCorrect >= 3) {
+    masteryLevel = 'mastered';
+    masteryReason = {
+      ar: `أظهر الطفل إتقاناً ثابتاً (${avgAcc}%) عبر ${totalAttempts} محاولات متنوعة ومراجعة دورية.`,
+      en: `Demonstrated steady mastery (${avgAcc}%) across ${totalAttempts} varied attempts and checks.`,
+    };
+  } else if (totalAttempts >= 2 && avgAcc >= 75) {
+    masteryLevel = 'confident';
+    masteryReason = {
+      ar: `تقدم واثق (${avgAcc}%) عبر ${totalAttempts} محاولات؛ ينصح بتحدٍّ إضافي جديد لتثبيت الإتقان.`,
+      en: `Confident progress (${avgAcc}%) across ${totalAttempts} attempts; one more fresh check confirms mastery.`,
+    };
+  } else if (totalAttempts >= 1 && (passed || avgAcc >= 55)) {
+    masteryLevel = 'growing';
+    masteryReason = {
+      ar: `مهارة متنامية (${avgAcc}%) — خطوات متدرجة مناسبة لعمر الطفل.`,
+      en: `Growing skill (${avgAcc}%) — advancing smoothly at a child-friendly pace.`,
+    };
+  }
+
+  // Spaced repetition interval: 1d -> 3d -> 7d -> 14d (non-punitive)
+  const prevInterval = prev.reviewIntervalDays || 1;
+  let nextIntervalDays = 1;
+  if (passed) {
+    if (prevInterval < 3 && totalAttempts >= 2) nextIntervalDays = 3;
+    else if (prevInterval === 3 && masteryLevel === 'confident') nextIntervalDays = 7;
+    else if (prevInterval >= 7 && masteryLevel === 'mastered') nextIntervalDays = 14;
+    else nextIntervalDays = prevInterval;
+  } else {
+    nextIntervalDays = 1; // gentle next-day review, never reset mastery harshly
+  }
+
+  const nextReviewDueAt = new Date(
+    Date.parse(nowIso) + nextIntervalDays * 24 * 3600_000,
+  ).toISOString();
+
+  return {
+    skillId: prev.skillId,
+    attempts: totalAttempts,
+    correctCount: totalCorrect,
+    accuracy: avgAcc,
+    streak: nextStreak,
+    sustainedStreak,
+    difficultyTier: nextTier,
+    masteryLevel,
+    lastPracticedAt: nowIso,
+    nextReviewDueAt,
+    reviewIntervalDays: nextIntervalDays,
+    masteryReason,
+    evidenceSummary: nextEvidence,
+  };
 }
 
 /**
  * Transparent rule-based adaptive learning engine:
- * 1. Filters activities eligible for the child's age group.
- * 2. Identifies skills needing practice (lowest accuracy or unpracticed) vs mastered skills.
+ * 1. Checks spaced repetition due skills first (non-punitive gentle review).
+ * 2. Filters activities eligible for the child's age group & gradual difficulty tier.
  * 3. Avoids immediate repetition of the most recent completed activity.
- * 4. Returns a tailored recommendation + explanation.
+ * 4. Returns a tailored recommendation + human-readable explanation for Parent/Teacher & Child.
  */
 export function getAdaptiveRecommendation(child: ChildProfile): AdaptiveRecommendation {
   const ageActivities = GAME_ACTIVITIES.filter((a) => a.ageEligibility.includes(child.ageGroup));
   const pool = ageActivities.length > 0 ? ageActivities : GAME_ACTIVITIES;
+  const nowMs = Date.now();
 
-  // Score skills by need for gentle practice
+  // Score skills by review due date, low attempt count, or lower accuracy
   const skillEntries = Object.values(child.skillProgress);
   const prioritizedSkills = [...skillEntries].sort((a, b) => {
+    const aDue = a.nextReviewDueAt && Date.parse(a.nextReviewDueAt) <= nowMs ? 1 : 0;
+    const bDue = b.nextReviewDueAt && Date.parse(b.nextReviewDueAt) <= nowMs ? 1 : 0;
+    if (aDue !== bDue) return bDue - aDue;
     if (a.attempts === 0 && b.attempts > 0) return -1;
     if (b.attempts === 0 && a.attempts > 0) return 1;
     return a.accuracy - b.accuracy;
   });
 
   for (const skill of prioritizedSkills) {
+    const tier: AdaptiveDifficultyTier = skill.difficultyTier || 'easy';
+    const maxDiff = tier === 'advanced' ? 3 : tier === 'medium' ? 2 : 1;
     const candidates = pool.filter(
+      (a) =>
+        a.skillId === skill.skillId &&
+        a.id !== child.recentActivityId &&
+        a.difficulty <= maxDiff,
+    );
+    const fallbackCandidates = pool.filter(
       (a) => a.skillId === skill.skillId && a.id !== child.recentActivityId,
     );
-    const uncompleted = candidates.find((c) => !child.completedActivityIds.includes(c.id));
+    const chosenList = candidates.length > 0 ? candidates : fallbackCandidates;
+    const uncompleted = chosenList.find((c) => !child.completedActivityIds.includes(c.id)) || chosenList[0];
+
     if (uncompleted) {
       const skillName = SKILL_LABELS[skill.skillId];
-      const reason =
-        skill.attempts === 0
+      const isDue = skill.nextReviewDueAt && Date.parse(skill.nextReviewDueAt) <= nowMs;
+      const reason: LocalizedText = isDue
+        ? {
+            ar: `مراجعة متباعدة هادئة لتثبيت مهارة ${skillName.ar} (${skill.accuracy}%)`,
+            en: `Gentle spaced review to lock in ${skillName.en} (${skill.accuracy}% accuracy)`,
+          }
+        : skill.attempts === 0
           ? {
-              ar: `فرصة جديدة لاكتشاف مهارة ${skillName.ar} بأسلوب يناسب عمرك`,
-              en: `A fresh adventure to explore ${skillName.en} at your age level`,
+              ar: `فرصة جديدة لاكتشاف مهارة ${skillName.ar} بمستوى ${tier === 'easy' ? 'مبدئي لطيف' : 'متدرج'}`,
+              en: `A fresh ${tier} adventure to start building ${skillName.en}`,
             }
           : skill.accuracy < 75
             ? {
-                ar: `تدريب لطيف لتعزيز مهارة ${skillName.ar} بخطوات ممتعة`,
-                en: `Gentle extra practice to build confidence in ${skillName.en}`,
+                ar: `تدريب متدرج (${tier === 'easy' ? 'سهل' : 'متوسط'}) لتعزيز الثقة في ${skillName.ar}`,
+                en: `Supportive ${tier} practice to strengthen confidence in ${skillName.en}`,
               }
             : {
-                ar: `استمرار التألق في ${skillName.ar} مع تحدٍّ جديد!`,
-                en: `Keep shining in ${skillName.en} with a brand-new challenge!`,
+                ar: `استمرار التألق في ${skillName.ar} مع خطوة ${tier === 'advanced' ? 'متقدمة' : 'متدرجة'} جديدة`,
+                en: `Keep shining in ${skillName.en} with a new ${tier} challenge`,
               };
 
       return {
@@ -65,11 +211,11 @@ export function getAdaptiveRecommendation(child: ChildProfile): AdaptiveRecommen
         worldId: uncompleted.worldId,
         reason,
         focusSkill: skill.skillId,
+        suggestedDifficulty: tier,
       };
     }
   }
 
-  // Fallback to any uncompleted age-appropriate activity or favorite world
   const fallback =
     pool.find((a) => !child.completedActivityIds.includes(a.id)) ||
     pool.find((a) => a.worldId === child.favoriteWorldId) ||
@@ -83,6 +229,7 @@ export function getAdaptiveRecommendation(child: ChildProfile): AdaptiveRecommen
       en: 'A playful adventure Nono picked for your journey today',
     },
     focusSkill: fallback.skillId,
+    suggestedDifficulty: 'easy',
   };
 }
 
@@ -94,11 +241,6 @@ export interface DiscoveryLabQuestion {
   sourceWorldId: WorldId;
 }
 
-/**
- * Generates an age-specific Discovery Lab assessment deck.
- * Never serves a 3-4 year old an 8-year-old question or vice-versa.
- * Supports adaptive progression: requires 2 consecutive correct answers before raising difficulty.
- */
 export function buildAgeAssessmentDeck(ageGroup: AgeGroupId): DiscoveryLabQuestion[] {
   const eligibleActivities = GAME_ACTIVITIES.filter(
     (a) =>
@@ -110,7 +252,6 @@ export function buildAgeAssessmentDeck(ageGroup: AgeGroupId): DiscoveryLabQuesti
   const deck: DiscoveryLabQuestion[] = [];
   const seenSkills = new Set<SkillId>();
 
-  // First pass: pick 1 question per distinct skill for broad coverage
   for (const act of eligibleActivities) {
     if (!seenSkills.has(act.skillId) && act.questions[0]) {
       seenSkills.add(act.skillId);
@@ -125,7 +266,6 @@ export function buildAgeAssessmentDeck(ageGroup: AgeGroupId): DiscoveryLabQuesti
     if (deck.length >= 6) break;
   }
 
-  // Second pass if fewer than 5 questions
   if (deck.length < 5) {
     for (const act of eligibleActivities) {
       for (let i = 0; i < act.questions.length; i++) {
@@ -149,23 +289,35 @@ export function buildAgeAssessmentDeck(ageGroup: AgeGroupId): DiscoveryLabQuesti
 }
 
 /**
- * Generates parent insights strictly grounded in recorded child attempts & assessments.
+ * Generates plain-language, data-grounded parent & teacher insights.
  */
 export function generateParentInsights(child: ChildProfile): ParentInsight[] {
   const insights: ParentInsight[] = [];
   const practicedSkills = Object.values(child.skillProgress).filter((s) => s.attempts > 0);
+  const l1Count = Object.values(child.level1Progress || {}).filter((p) => p.status === 'demonstrated').length;
+  const l2Count = Object.values(child.level2Progress || {}).filter((p) => p.status === 'demonstrated').length;
+  const totalCompletedLessons = l1Count + l2Count;
 
-  if (practicedSkills.length === 0) {
+  if (practicedSkills.length === 0 && totalCompletedLessons === 0) {
     insights.push({
       id: 'insight-empty',
       type: 'recommendation',
       text: {
-        ar: `لم يبدأ ${child.displayName} أنشطة مسجلة بعد. ابدأ بجلسة مختبر نونو للاكتشاف أو بنشاط من خريطة العوالم.`,
-        en: `${child.displayName} has no recorded activity sessions yet. Try Nono's Discovery Lab or any island activity to begin tracking.`,
+        ar: `لم يكمل ${child.displayName} دروساً أو أنشطة مسجلة بعد. ابدأ بدرس واحد من الأكاديمية أو نشاط من الخريطة.`,
+        en: `${child.displayName} has not recorded lessons or activities yet. Try one Academy lesson or Map island to begin.`,
       },
     });
     return insights;
   }
+
+  insights.push({
+    id: 'insight-lessons-count',
+    type: 'strength',
+    text: {
+      ar: `أتمّ ${child.displayName} ${totalCompletedLessons} من أصل ١٢٧ درساً عبر المستويين (المستوى ١: ${l1Count}/٧٥ · المستوى ٢: ${l2Count}/٥٢).`,
+      en: `${child.displayName} has completed ${totalCompletedLessons} of 127 lessons across Level 1 (${l1Count}/75) and Level 2 (${l2Count}/52).`,
+    },
+  });
 
   const strongest = [...practicedSkills].sort((a, b) => b.accuracy - a.accuracy)[0];
   if (strongest) {
@@ -174,8 +326,8 @@ export function generateParentInsights(child: ChildProfile): ParentInsight[] {
       id: 'insight-strong',
       type: 'strength',
       text: {
-        ar: `أظهر ${child.displayName} ثقة عالية في "${label.ar}" بدقة ${strongest.accuracy}% عبر ${strongest.attempts} محاولات.`,
-        en: `${child.displayName} demonstrated strong progress in "${label.en}" with ${strongest.accuracy}% accuracy across ${strongest.attempts} attempts.`,
+        ar: `نقطة القوة الأبرز: "${label.ar}" بدقة ${strongest.accuracy}% عبر ${strongest.attempts} محاولات.`,
+        en: `Strongest area: "${label.en}" with ${strongest.accuracy}% accuracy across ${strongest.attempts} recorded attempts.`,
       },
     });
   }
@@ -187,8 +339,8 @@ export function generateParentInsights(child: ChildProfile): ParentInsight[] {
       id: 'insight-practice',
       type: 'practice',
       text: {
-        ar: `قد يستفيد ${child.displayName} من أنشطة إضافية لطيفة في "${label.ar}" (الدقة الحالية ${needsPractice.accuracy}%).`,
-        en: `${child.displayName} may benefit from gentle additional play in "${label.en}" (currently ${needsPractice.accuracy}% accuracy).`,
+        ar: `مهارة تحتاج إلى ممارسة لطيفة: "${label.ar}" (الدقة الحالية ${needsPractice.accuracy}%).`,
+        en: `Area for gentle practice: "${label.en}" (currently ${needsPractice.accuracy}% accuracy).`,
       },
     });
   }
@@ -200,11 +352,95 @@ export function generateParentInsights(child: ChildProfile): ParentInsight[] {
       id: 'insight-rec',
       type: 'recommendation',
       text: {
-        ar: `الخطوة المقترحة التالية: "${rec.activity.title.ar}" داخل ${world.name.ar}.`,
-        en: `Suggested next adventure: "${rec.activity.title.en}" inside ${world.name.en}.`,
+        ar: `التوصية التالية: "${rec.activity.title.ar}" (${rec.reason.ar}).`,
+        en: `Next step: "${rec.activity.title.en}" (${rec.reason.en}).`,
       },
     });
   }
 
   return insights;
+}
+
+export interface WorldProgressionEntry {
+  world: LearningWorld;
+  status: 'completed' | 'available' | 'upcoming';
+  isUnlocked: boolean;
+  completedCount: number;
+  totalCount: number;
+  progressPercent: number;
+  unlockRequirementLabel: LocalizedText;
+}
+
+/**
+ * Computes Adventure Map progression tied strictly to real activities & curriculum progress.
+ * Islands requiring prerequisites remain 'upcoming' until the child demonstrates real activity progress
+ * (never unlocked merely by opening the app).
+ */
+export function getAdventureMapProgress(
+  child: ChildProfile,
+  options?: { minActivitiesForIntermediate?: number; minStarsForScience?: number },
+): WorldProgressionEntry[] {
+  const minActivities = options?.minActivitiesForIntermediate ?? 2;
+  const minStarsForScience = options?.minStarsForScience ?? 5;
+
+  const demonstratedLessonsCount =
+    Object.values(child.level1Progress || {}).filter((p) => p.status === 'demonstrated').length +
+    Object.values(child.level2Progress || {}).filter((p) => p.status === 'demonstrated').length;
+  const realProgressActions =
+    child.completedActivityIds.length + demonstratedLessonsCount + child.attempts.length;
+
+  const starterWorlds = new Set<WorldId>([
+    'arabic-letters',
+    'english-letters',
+    'numbers-kingdom',
+    'animal-jungle',
+    'colors-shapes',
+  ]);
+
+  return LEARNING_WORLDS.map((world) => {
+    const worldActivities = GAME_ACTIVITIES.filter((a) => a.worldId === world.id);
+    const totalCount = Math.max(1, worldActivities.length);
+    const completedCount = worldActivities.filter((a) =>
+      child.completedActivityIds.includes(a.id),
+    ).length;
+    const progressPercent = Math.min(100, Math.round((completedCount / totalCount) * 100));
+
+    let isUnlocked = starterWorlds.has(world.id);
+    let unlockRequirementLabel: LocalizedText = {
+      ar: 'جزيرة متاحة للبدء فوراً',
+      en: 'Ready to explore right away',
+    };
+
+    if (!isUnlocked) {
+      if (world.id === 'science-galaxy') {
+        isUnlocked = realProgressActions >= minActivities && child.stars >= minStarsForScience;
+        unlockRequirementLabel = {
+          ar: `أكمل ${minActivities} نشاطاً/درساً واجمع ${minStarsForScience} نجوم للفتح`,
+          en: `Complete ${minActivities} lessons/activities & earn ${minStarsForScience} stars to unlock`,
+        };
+      } else {
+        isUnlocked = realProgressActions >= 1;
+        unlockRequirementLabel = {
+          ar: 'أكمل نشاطاً واحداً أو درساً في الجزر الأولى للفتح',
+          en: 'Complete 1 starter activity or lesson to unlock',
+        };
+      }
+    }
+
+    const status: WorldProgressionEntry['status'] = !isUnlocked
+      ? 'upcoming'
+      : completedCount >= totalCount
+        ? 'completed'
+        : 'available';
+
+    return {
+      world,
+      status,
+      isUnlocked,
+      completedCount,
+      totalCount,
+      progressPercent,
+      unlockRequirementLabel,
+    };
+  });
 }

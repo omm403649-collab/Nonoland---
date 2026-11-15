@@ -1,7 +1,11 @@
 import {
   AgeGroupId,
+  FeatureFlags,
+  HomeworkType,
   Language,
+  QuestionQualityFlag,
   TeacherPermission,
+  TeacherQuestion,
   TeacherQuestionDifficulty,
   TeacherQuestionOption,
   TeacherQuestionType,
@@ -15,6 +19,28 @@ export const DEFAULT_TEACHER_PERMISSIONS: TeacherPermission[] = [
   'assign_exams',
   'view_results',
   'bulk_import',
+];
+
+export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
+  level2Enabled: true,
+  teacherHomeworkEnabled: true,
+  paidAssessmentsEnabled: true,
+  certificatesEnabled: true,
+  offlineLearningEnabled: true,
+  newSubjectsEnabled: true,
+  newGameModulesEnabled: true,
+  requireTeacherContentApproval: false,
+};
+
+export const ALLOWED_HOMEWORK_TYPES: HomeworkType[] = [
+  'multiple-choice',
+  'picture-matching',
+  'audio-activity',
+  'reading-practice',
+  'writing-practice',
+  'math-exercise',
+  'interactive-game',
+  'teacher-questions',
 ];
 
 export const POLICY_VERSION = '2026.1';
@@ -484,4 +510,178 @@ export function validateExamScheduleAndConfig(input: {
   }
   return { ok: true };
 }
+
+export function validateHomeworkInput(input: {
+  titleAr?: unknown;
+  titleEn?: unknown;
+  homeworkType?: unknown;
+  subject?: unknown;
+  level?: unknown;
+  startDate?: unknown;
+  deadline?: unknown;
+  maxAttempts?: unknown;
+}): { ok: boolean; error?: string } {
+  const titleAr = sanitizeShortText(input.titleAr, 160);
+  const titleEn = sanitizeShortText(input.titleEn, 160);
+  if (!titleAr && !titleEn) {
+    return { ok: false, error: 'Homework title (Arabic or English) is required' };
+  }
+  if (!ALLOWED_HOMEWORK_TYPES.includes(input.homeworkType as HomeworkType)) {
+    return { ok: false, error: 'Invalid homework type' };
+  }
+  const subj = String(input.subject || '');
+  if (subj !== 'comprehensive' && !ALLOWED_TEACHER_SUBJECTS.includes(subj as TeacherSubject)) {
+    return { ok: false, error: 'Invalid homework subject' };
+  }
+  const level = Number(input.level);
+  if (level !== 1 && level !== 2) {
+    return { ok: false, error: 'Homework level must be 1 or 2' };
+  }
+  const startMs = Date.parse(String(input.startDate || ''));
+  const deadlineMs = Date.parse(String(input.deadline || ''));
+  if (Number.isNaN(startMs) || Number.isNaN(deadlineMs)) {
+    return { ok: false, error: 'Valid startDate and deadline are required' };
+  }
+  if (startMs >= deadlineMs) {
+    return { ok: false, error: 'Assignment startDate must be before deadline' };
+  }
+  const maxAttempts = Number(input.maxAttempts ?? 3);
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 20) {
+    return { ok: false, error: 'Max attempts must be an integer between 1 and 20' };
+  }
+  return { ok: true };
+}
+
+function normalizeSubjectFamily(s: string): string {
+  if (s === 'numbers' || s === 'math') return 'math';
+  if (s === 'colors' || s === 'colors-shapes' || s === 'colors-science') return 'colors-shapes';
+  return s;
+}
+
+export function checkQuestionQuality(
+  q: Pick<
+    TeacherQuestion,
+    | 'id'
+    | 'subject'
+    | 'level'
+    | 'lessonId'
+    | 'questionType'
+    | 'promptAr'
+    | 'promptEn'
+    | 'imageUrl'
+    | 'audioUrl'
+    | 'audioText'
+    | 'options'
+    | 'marks'
+  >,
+  existingQuestions: TeacherQuestion[],
+  lessonLevelSubjectMap: Map<string, { level: 1 | 2; subject: string }>,
+): QuestionQualityFlag[] {
+  const flags: QuestionQualityFlag[] = [];
+
+  if (!q.promptAr?.trim() || !q.promptEn?.trim()) {
+    flags.push({
+      code: 'MISSING_AR_OR_EN',
+      severity: 'warning',
+      message: 'Bilingual parity check: question is missing either Arabic or English text.',
+    });
+  }
+
+  if (q.questionType === 'audio-id' && !q.audioUrl && !q.audioText) {
+    flags.push({
+      code: 'MISSING_AUDIO_CUE',
+      severity: 'error',
+      message: 'Audio question is missing both audioUrl and speech audioText.',
+    });
+  }
+
+  if (q.questionType === 'picture-id' && !q.imageUrl && !q.options?.some((o) => o.visual)) {
+    flags.push({
+      code: 'MISSING_VISUAL',
+      severity: 'warning',
+      message: 'Picture identification question has no imageUrl or visual emoji cues.',
+    });
+  }
+
+  if (q.imageUrl && !isValidSafeUrl(q.imageUrl)) {
+    flags.push({
+      code: 'BROKEN_MEDIA_REF',
+      severity: 'error',
+      message: 'Invalid or unsafe imageUrl reference.',
+    });
+  }
+  if (q.audioUrl && !isValidSafeUrl(q.audioUrl)) {
+    flags.push({
+      code: 'BROKEN_MEDIA_REF',
+      severity: 'error',
+      message: 'Invalid or unsafe audioUrl reference.',
+    });
+  }
+
+  if (
+    (q.questionType === 'multiple-choice' || q.questionType === 'picture-id' || q.questionType === 'audio-id') &&
+    (q.options?.length || 0) < 3
+  ) {
+    flags.push({
+      code: 'LOW_OPTION_COUNT',
+      severity: 'warning',
+      message: 'Recommended at least 3 choices for this question type.',
+    });
+  }
+
+  const seenOpts = new Set<string>();
+  for (const opt of q.options || []) {
+    const key = `${(opt.textAr || '').trim().toLowerCase()}|${(opt.textEn || '').trim().toLowerCase()}`;
+    if (key !== '|' && seenOpts.has(key)) {
+      flags.push({
+        code: 'DUPLICATE_OPTIONS',
+        severity: 'error',
+        message: 'Two answer options appear identical.',
+      });
+      break;
+    }
+    seenOpts.add(key);
+  }
+
+  if (!Number.isFinite(q.marks) || q.marks <= 0 || q.marks > 10) {
+    flags.push({
+      code: 'INVALID_MARKS',
+      severity: 'warning',
+      message: 'Marks value is unusually high (>10) or invalid; verify grading weight.',
+    });
+  }
+
+  const lessonMeta = lessonLevelSubjectMap.get(q.lessonId);
+  if (
+    lessonMeta &&
+    normalizeSubjectFamily(lessonMeta.subject) !== normalizeSubjectFamily(q.subject)
+  ) {
+    flags.push({
+      code: 'SUBJECT_LESSON_MISMATCH',
+      severity: 'warning',
+      message: `Selected lesson (${q.lessonId}, subject ${lessonMeta.subject}) differs from question subject (${q.subject}).`,
+    });
+  }
+
+  const normPrompt = (q.promptAr || q.promptEn || '').trim().toLowerCase();
+  if (
+    normPrompt &&
+    existingQuestions.some(
+      (other) =>
+        other.id !== q.id &&
+        other.active &&
+        other.lessonId === q.lessonId &&
+        (other.promptAr || other.promptEn || '').trim().toLowerCase() === normPrompt,
+    )
+  ) {
+    flags.push({
+      code: 'DUPLICATE_PROMPT',
+      severity: 'warning',
+      message: 'A very similar or identical question already exists for this lesson.',
+    });
+  }
+
+  return flags;
+}
+
 

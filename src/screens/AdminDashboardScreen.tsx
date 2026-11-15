@@ -15,6 +15,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { AdminCmsPanel } from '../components/AdminCmsPanel';
+import { AdminGovernancePanel, AdminOpsPanel } from '../components/AdminGovernanceAndOpsPanel';
 import { useNonoLand } from '../context/NonoLandContext';
 import { t } from '../i18n/translations';
 import type {
@@ -53,7 +54,7 @@ interface AdminStudentRow {
 
 export const AdminDashboardScreen: React.FC = () => {
   const { authSession, language, navigate, logoutParent } = useNonoLand();
-  const [tab, setTab] = useState<'teachers' | 'classes' | 'exams' | 'progression' | 'cms'>('teachers');
+  const [tab, setTab] = useState<'teachers' | 'classes' | 'exams' | 'governance' | 'ops' | 'progression' | 'cms'>('teachers');
   const [adminPin, setAdminPin] = useState('');
   const [notice, setNotice] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -257,6 +258,8 @@ export const AdminDashboardScreen: React.FC = () => {
           { id: 'teachers' as const, label: language === 'ar' ? `المعلمون (${teachers.length})` : `Teachers (${teachers.length})`, icon: <UserCheck className="w-4 h-4" /> },
           { id: 'classes' as const, label: language === 'ar' ? `الفصول والطلاب (${classes.length})` : `Classes & Students (${classes.length})`, icon: <Layers className="w-4 h-4" /> },
           { id: 'exams' as const, label: language === 'ar' ? `مراجعة الامتحانات (${teacherExams.length})` : `Teacher Exams (${teacherExams.length})`, icon: <ClipboardCheck className="w-4 h-4" /> },
+          { id: 'governance' as const, label: language === 'ar' ? 'جودة واعتماد المحتوى' : 'Content Governance', icon: <CheckCircle2 className="w-4 h-4" /> },
+          { id: 'ops' as const, label: language === 'ar' ? 'الميزات والعمليات والتدقيق' : 'Feature Flags & Ops', icon: <Shield className="w-4 h-4" /> },
           { id: 'progression' as const, label: language === 'ar' ? 'قواعد المستوى ٢' : 'Level 2 Rules', icon: <Sliders className="w-4 h-4" /> },
           { id: 'cms' as const, label: language === 'ar' ? 'إدارة المحتوى والشهادات' : 'CMS & Certificates', icon: <Settings className="w-4 h-4" /> },
         ].map((item) => (
@@ -546,6 +549,16 @@ export const AdminDashboardScreen: React.FC = () => {
             Save Progression Rules
           </button>
         </div>
+      )}
+
+      {/* CONTENT GOVERNANCE & QUALITY AUDIT */}
+      {tab === 'governance' && (
+        <AdminGovernancePanel apiFetch={apiFetch} onNotice={setNotice} onError={setErrorMsg} />
+      )}
+
+      {/* FEATURE FLAGS, OPS, INTEGRITY, BACKUP & AUDIT LOGS */}
+      {tab === 'ops' && (
+        <AdminOpsPanel apiFetch={apiFetch} onNotice={setNotice} onError={setErrorMsg} />
       )}
 
       {/* EXISTING ADMIN CMS PANEL */}

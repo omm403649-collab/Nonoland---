@@ -17,6 +17,7 @@ import {
 import { AssignedExamsSection } from '../components/AssignedExamsSection';
 import { CertificateModal } from '../components/CertificateModal';
 import { NonoCharacter } from '../components/NonoCharacter';
+import { StudentHomeworkSection } from '../components/StudentHomeworkSection';
 import { useNonoLand } from '../context/NonoLandContext';
 import { AGE_CURRICULUM_OUTCOMES } from '../data/deepCurriculum';
 import { AGE_GROUP_META, formatNumber, t } from '../i18n/translations';
@@ -42,7 +43,7 @@ interface ReviewRow {
 }
 
 export const ExamsScreen: React.FC = () => {
-  const { activeChild, language, recordExamCompletion, navigate, authSession } = useNonoLand();
+  const { activeChild, language, recordExamCompletion, navigate, authSession, featureFlags } = useNonoLand();
   const [examConfig, setExamConfig] = useState<ExamConfig>({
     examPriceEgp: 50,
     currency: 'EGP',
@@ -52,10 +53,11 @@ export const ExamsScreen: React.FC = () => {
   });
 
   const [subject, setSubject] = useState<ExamSubject>('comprehensive');
-  const [examViewMode, setExamViewMode] = useState<'official' | 'assigned'>(
+  const [examViewMode, setExamViewMode] = useState<'official' | 'assigned' | 'homework'>(
     authSession.user?.role === 'student' ? 'assigned' : 'official',
   );
   const [assignedCount, setAssignedCount] = useState(0);
+  const [homeworkCount, setHomeworkCount] = useState(0);
 
   // Active Exam Runner State
   const [attemptId, setAttemptId] = useState<string | null>(null);
@@ -104,6 +106,14 @@ export const ExamsScreen: React.FC = () => {
         .then((d) => {
           if (d) {
             setAssignedCount((d.available?.length || 0) + (d.inProgress?.length || 0));
+          }
+        })
+        .catch(() => {});
+      fetch(`/api/student/homework${q}`, { credentials: 'include' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d) {
+            setHomeworkCount((d.newAssignments?.length || 0) + (d.inProgress?.length || 0));
           }
         })
         .catch(() => {});
@@ -544,12 +554,12 @@ export const ExamsScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Mode Switcher: Official/Practice vs Teacher-Assigned Exams */}
+      {/* Mode Switcher: Official/Practice vs Teacher-Assigned Exams vs Homework */}
       <div className="flex flex-wrap gap-2 p-1.5 bg-white rounded-2xl border border-[#27345C]/12 w-fit">
         <button
           type="button"
           onClick={() => setExamViewMode('official')}
-          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold cursor-pointer transition-colors ${
+          className={`min-h-[44px] px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold cursor-pointer transition-colors ${
             examViewMode === 'official'
               ? 'bg-[#27345C] text-white'
               : 'text-[#27345C]/75 hover:bg-slate-50'
@@ -560,7 +570,7 @@ export const ExamsScreen: React.FC = () => {
         <button
           type="button"
           onClick={() => setExamViewMode('assigned')}
-          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 cursor-pointer transition-colors ${
+          className={`min-h-[44px] px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 cursor-pointer transition-colors ${
             examViewMode === 'assigned'
               ? 'bg-[#8054D9] text-white'
               : 'text-[#27345C]/75 hover:bg-slate-50'
@@ -568,14 +578,32 @@ export const ExamsScreen: React.FC = () => {
         >
           <span>{language === 'ar' ? 'الامتحانات المدرسية المعينة' : 'Teacher-Assigned Exams'}</span>
           {assignedCount > 0 && (
-            <span className="px-2 py-0.5 rounded-lg bg-[#FFD84D] text-[#27345C] text-[11px] font-mono-num">
+            <span className="px-2 py-0.5 rounded-lg bg-[#FFD84D] text-[#27345C] text-[11px] tabular-nums">
               {assignedCount}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setExamViewMode('homework')}
+          className={`min-h-[44px] px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 cursor-pointer transition-colors ${
+            examViewMode === 'homework'
+              ? 'bg-[#39BDF2] text-white'
+              : 'text-[#27345C]/75 hover:bg-slate-50'
+          }`}
+        >
+          <span>{language === 'ar' ? 'واجباتي المدرسية' : 'My Homework'}</span>
+          {homeworkCount > 0 && (
+            <span className="px-2 py-0.5 rounded-lg bg-[#FFD84D] text-[#27345C] text-[11px] tabular-nums">
+              {homeworkCount}
             </span>
           )}
         </button>
       </div>
 
-      {examViewMode === 'assigned' ? (
+      {examViewMode === 'homework' ? (
+        <StudentHomeworkSection />
+      ) : examViewMode === 'assigned' ? (
         <AssignedExamsSection onCountChange={setAssignedCount} />
       ) : (
         <>
@@ -696,25 +724,33 @@ export const ExamsScreen: React.FC = () => {
             </ul>
           </div>
 
-          <button
-            type="button"
-            disabled={loadingExam}
-            onClick={() => {
-              soundEngine.playPop();
-              setShowPaymentModal(true);
-              setGateUnlocked(false);
-              setGateInput('');
-              setGateError(false);
-            }}
-            className="nono-btn-tactile w-full py-3.5 px-5 rounded-2xl bg-[#8054D9] text-white font-extrabold text-sm flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <Lock className="w-4 h-4 text-[#FFD84D]" />
-            <span>
+          {!featureFlags.paidAssessmentsEnabled ? (
+            <div className="p-3 rounded-2xl bg-[#27345C]/10 text-xs font-extrabold text-[#27345C] text-center">
               {language === 'ar'
-                ? `دخول الامتحان الرسمي (${examConfig.examPriceEgp} ج.م — موافقة الأهل)`
-                : `Take Official Exam (${examConfig.examPriceEgp} EGP — Parent Gate)`}
-            </span>
-          </button>
+                ? 'الامتحانات الرسمية المدفوعة متوقفة مؤقتاً من الإدارة.'
+                : 'Official paid assessments are temporarily paused by administrator.'}
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={loadingExam}
+              onClick={() => {
+                soundEngine.playPop();
+                setShowPaymentModal(true);
+                setGateUnlocked(false);
+                setGateInput('');
+                setGateError(false);
+              }}
+              className="nono-btn-tactile w-full min-h-[44px] py-3.5 px-5 rounded-2xl bg-[#8054D9] text-white font-extrabold text-sm flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Lock className="w-4 h-4 text-[#FFD84D]" />
+              <span>
+                {language === 'ar'
+                  ? `دخول الامتحان الرسمي (${examConfig.examPriceEgp} ج.م — موافقة الأهل)`
+                  : `Take Official Exam (${examConfig.examPriceEgp} EGP — Parent Gate)`}
+              </span>
+            </button>
+          )}
         </div>
       </div>
 

@@ -20,6 +20,7 @@ import {
   Users,
   XCircle,
 } from 'lucide-react';
+import { TeacherHomeworkPanel } from '../components/TeacherHomeworkPanel';
 import { useNonoLand } from '../context/NonoLandContext';
 import { t } from '../i18n/translations';
 import type {
@@ -43,6 +44,7 @@ type TeacherSection =
   | 'overview'
   | 'classes'
   | 'students'
+  | 'homework'
   | 'create-exam'
   | 'my-exams'
   | 'question-bank'
@@ -558,6 +560,7 @@ export const TeacherDashboardScreen: React.FC = () => {
     { id: 'overview', ar: 'نظرة عامة', en: 'Overview', icon: <LayoutDashboard className="w-4 h-4" /> },
     { id: 'classes', ar: 'فصولي', en: 'My Classes', icon: <Layers className="w-4 h-4" /> },
     { id: 'students', ar: 'طلابي', en: 'My Students', icon: <Users className="w-4 h-4" /> },
+    { id: 'homework', ar: 'الواجبات والمهام', en: 'Homework & Assignments', icon: <FileText className="w-4 h-4" /> },
     { id: 'question-bank', ar: 'بنك الأسئلة والاستيراد', en: 'Question Bank', icon: <BookOpen className="w-4 h-4" /> },
     { id: 'create-exam', ar: 'إنشاء امتحان', en: 'Create Exam', icon: <Plus className="w-4 h-4" /> },
     { id: 'my-exams', ar: 'كل امتحاناتي', en: 'My Exams', icon: <ClipboardCheck className="w-4 h-4" /> },
@@ -803,6 +806,19 @@ export const TeacherDashboardScreen: React.FC = () => {
                 </table>
               </div>
             </div>
+          )}
+
+          {/* 3B. HOMEWORK & ASSIGNMENTS */}
+          {section === 'homework' && (
+            <TeacherHomeworkPanel
+              apiFetch={apiFetch}
+              classes={classes}
+              students={students}
+              lessons={lessons}
+              questions={questions}
+              onNotice={setNotice}
+              onError={setErrorMsg}
+            />
           )}
 
           {/* 4. QUESTION BANK & BULK IMPORT */}
@@ -1150,11 +1166,35 @@ export const TeacherDashboardScreen: React.FC = () => {
                           <span className="px-2 py-0.5 rounded bg-[#39BDF2]/15 text-[#0369A1]">{q.questionType}</span>
                           <span className="px-2 py-0.5 rounded bg-[#FFD84D]/35">{q.marks} pts</span>
                           <span className="px-2 py-0.5 rounded bg-slate-100">{q.difficulty}</span>
+                          <span className="px-2 py-0.5 rounded bg-[#27345C] text-white">
+                            {q.approvalStatus || 'published'} · v{q.version || 1}
+                          </span>
+                          {(q.qualityFlags || []).map((fl) => (
+                            <span key={fl.code} title={fl.message} className="px-2 py-0.5 rounded bg-[#FF6B6B]/20 text-[#991B1B]">
+                              ⚠ {fl.code}
+                            </span>
+                          ))}
                         </div>
                         <p className="font-extrabold text-sm text-[#27345C]">{q.promptAr || q.promptEn}</p>
                         {q.promptAr && q.promptEn && <p className="text-xs font-bold text-[#27345C]/65">{q.promptEn}</p>}
+                        {q.adminFeedback && (
+                          <p className="text-xs font-bold text-[#9A3412]">Admin note: {q.adminFeedback}</p>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5 text-xs font-bold">
+                        {(q.approvalStatus === 'draft' || q.approvalStatus === 'rejected') && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await apiFetch(`/api/teacher/content/question/${q.id}/submit-review`, { method: 'POST' });
+                              setNotice('Question submitted for Admin review.');
+                              await loadAll();
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-[#FFD84D] text-[#27345C] font-extrabold cursor-pointer"
+                          >
+                            Submit Review
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => setPreviewQuestion(previewQuestion?.id === q.id ? null : q)}
@@ -1333,6 +1373,7 @@ export const TeacherDashboardScreen: React.FC = () => {
                   <div>
                     <div className="flex items-center gap-2 text-[11px] font-extrabold">
                       <span className="px-2 py-0.5 rounded bg-[#8054D9] text-white">{ex.status}</span>
+                      <span className="px-2 py-0.5 rounded bg-white border">v{ex.version || 1}</span>
                       <span>L{ex.level} · {ex.subject}</span>
                       <span>{ex.totalQuestions} Qs · {ex.totalMarks} pts</span>
                     </div>
@@ -1340,8 +1381,26 @@ export const TeacherDashboardScreen: React.FC = () => {
                     <p className="text-xs font-bold text-[#27345C]/65">
                       Assignments: {ex.assignmentCount ?? 0} · Completed: {ex.completedCount ?? 0}
                     </p>
+                    {ex.adminReviewNote && (
+                      <p className="text-xs font-bold text-[#9A3412] mt-0.5">Admin feedback: {ex.adminReviewNote}</p>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2 text-xs font-bold">
+                    {(ex.status === 'draft' || ex.status === 'rejected') && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await apiFetch(`/api/teacher/content/exam/${ex.id}/submit-review`, {
+                            method: 'POST',
+                          });
+                          setNotice('Exam submitted for Admin approval.');
+                          await loadAll();
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-[#FFD84D] text-[#27345C] font-extrabold cursor-pointer"
+                      >
+                        Submit for Review
+                      </button>
+                    )}
                     {ex.status === 'draft' && (
                       <button
                         type="button"

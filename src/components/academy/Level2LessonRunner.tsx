@@ -348,7 +348,7 @@ export const Level2LessonRunner: React.FC<Level2LessonRunnerProps> = ({
             <button
               type="button"
               onClick={() => speakCue(lesson.audioCue.text, lesson.audioCue.lang)}
-              className="mt-2 inline-flex items-center gap-2 h-10 px-4 rounded-xl bg-[#39BDF2] text-white font-bold text-sm cursor-pointer"
+              className="mt-2 inline-flex items-center gap-2 min-h-[44px] px-4 rounded-xl bg-[#39BDF2] text-white font-bold text-sm cursor-pointer"
             >
               <Ear className="w-4 h-4" />
               <span>{language === 'ar' ? 'اسمع النطق والمثال' : 'Hear Audio Cue'}</span>

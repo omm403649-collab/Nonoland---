@@ -190,13 +190,17 @@ export function appendSecurityLog(
   logs: SecurityEventLog[],
   entry: Omit<SecurityEventLog, 'id' | 'createdAt'>,
 ) {
+  const safeSummary = String(entry.summary || '')
+    .replace(/(password|token|secret|csrf|cookie)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]')
+    .slice(0, 300);
   logs.unshift({
     ...entry,
+    summary: safeSummary,
     id: `sec_${crypto.randomBytes(5).toString('hex')}`,
     createdAt: new Date().toISOString(),
   });
-  if (logs.length > 800) {
-    logs.length = 800;
+  if (logs.length > 1000) {
+    logs.length = 1000;
   }
 }
 

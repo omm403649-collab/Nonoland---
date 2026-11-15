@@ -29,6 +29,7 @@ import type {
 } from '../src/types/nonoland';
 import {
   ALLOWED_TEACHER_SUBJECTS,
+  checkQuestionQuality,
   isValidSafeId,
   normalizeEmail,
   POLICY_VERSION,
@@ -1388,11 +1389,20 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
     }
 
     const nowIso = new Date().toISOString();
+    const qId = `tq_${crypto.randomBytes(6).toString('hex')}`;
+    const qualityFlags = checkQuestionQuality(
+      { ...parsed.draft, id: qId },
+      Object.values(db.teacherQuestions),
+      levelSubjectMap,
+    );
     const q: TeacherQuestion = {
       ...parsed.draft,
-      id: `tq_${crypto.randomBytes(6).toString('hex')}`,
+      id: qId,
       teacherId: teacher.id,
+      approvalStatus: db.featureFlags.requireTeacherContentApproval ? 'pending-review' : 'published',
+      qualityFlags,
       version: 1,
+      versions: [],
       createdAt: nowIso,
       updatedAt: nowIso,
     };
@@ -1403,7 +1413,7 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
       actorId: teacher.id,
       role: teacher.role,
       ip: getClientIp(req),
-      summary: `Created question ${q.id} (${q.lessonId}, ${q.questionType})`,
+      summary: `Created question ${q.id} (${q.lessonId}, ${q.questionType}, flags=${qualityFlags.length})`,
     });
     saveDb(db);
     res.status(201).json({ question: q });
@@ -1425,16 +1435,50 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
       return res.status(400).json({ error: parsed.error });
     }
 
+    const nowIso = new Date().toISOString();
+    const prevSnapshot = JSON.parse(
+      JSON.stringify({ ...existing, versions: undefined }),
+    ) as Record<string, unknown>;
+    const versions = [
+      ...(existing.versions || []),
+      {
+        version: existing.version,
+        editedBy: teacher.id,
+        editedByName: teacher.displayName,
+        editedAt: nowIso,
+        reason: sanitizeShortText((req.body as Record<string, unknown>).editReason || 'Teacher question edit', 200),
+        snapshot: prevSnapshot,
+      },
+    ].slice(-30);
+
+    const qualityFlags = checkQuestionQuality(
+      { ...parsed.draft, id: existing.id },
+      Object.values(db.teacherQuestions),
+      levelSubjectMap,
+    );
+
     const updated: TeacherQuestion = {
       ...existing,
       ...parsed.draft,
       id: existing.id,
       teacherId: existing.teacherId,
       createdAt: existing.createdAt,
+      approvalStatus: db.featureFlags.requireTeacherContentApproval
+        ? 'pending-review'
+        : existing.approvalStatus || 'published',
+      qualityFlags,
       version: existing.version + 1,
-      updatedAt: new Date().toISOString(),
+      versions,
+      updatedAt: nowIso,
     };
     db.teacherQuestions[existing.id] = updated;
+    appendSecurityLog(db.securityLogs, {
+      eventType: 'CONTENT_VERSION',
+      actorId: teacher.id,
+      role: teacher.role,
+      ip: getClientIp(req),
+      summary: `Updated question ${existing.id} -> v${updated.version}`,
+    });
     saveDb(db);
     res.json({ question: updated });
   });
@@ -1733,13 +1777,23 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
     }
 
     const nowIso = new Date().toISOString();
+    const { levelSubjectMap } = buildValidLessonRegistry(db);
     const createdIds: string[] = [];
     for (const item of batch.validRows) {
+      const qId = `tq_${crypto.randomBytes(6).toString('hex')}`;
+      const qualityFlags = checkQuestionQuality(
+        { ...item.question, id: qId },
+        Object.values(db.teacherQuestions),
+        levelSubjectMap,
+      );
       const q: TeacherQuestion = {
         ...item.question,
-        id: `tq_${crypto.randomBytes(6).toString('hex')}`,
+        id: qId,
         teacherId: teacher.id,
+        approvalStatus: db.featureFlags.requireTeacherContentApproval ? 'pending-review' : 'published',
+        qualityFlags,
         version: 1,
+        versions: [],
         createdAt: nowIso,
         updatedAt: nowIso,
       };
@@ -1897,11 +1951,19 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
     if ('error' in validated) return res.status(400).json({ error: validated.error });
 
     const nowIso = new Date().toISOString();
+    const examStatus =
+      db.featureFlags.requireTeacherContentApproval &&
+      (validated.examData.status === 'published' || validated.examData.status === 'active')
+        ? 'pending-review'
+        : validated.examData.status;
+
     const exam: TeacherExam = {
       ...validated.examData,
+      status: examStatus,
       id: `tex_${crypto.randomBytes(6).toString('hex')}`,
       teacherId: teacher.id,
       version: 1,
+      versions: [],
       createdAt: nowIso,
       updatedAt: nowIso,
     };
@@ -1930,16 +1992,47 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
     const validated = validateAndSnapshotTeacherExam(db, teacher.id, merged);
     if ('error' in validated) return res.status(400).json({ error: validated.error });
 
+    const nowIso = new Date().toISOString();
+    const prevSnapshot = JSON.parse(
+      JSON.stringify({ ...existing, versions: undefined }),
+    ) as Record<string, unknown>;
+    const versions = [
+      ...(existing.versions || []),
+      {
+        version: existing.version,
+        editedBy: teacher.id,
+        editedByName: teacher.displayName,
+        editedAt: nowIso,
+        reason: sanitizeShortText((req.body as Record<string, unknown>).editReason || 'Teacher exam edit', 200),
+        snapshot: prevSnapshot,
+      },
+    ].slice(-30);
+
+    const nextStatus =
+      db.featureFlags.requireTeacherContentApproval &&
+      (validated.examData.status === 'published' || validated.examData.status === 'active')
+        ? 'pending-review'
+        : validated.examData.status;
+
     const updated: TeacherExam = {
       ...existing,
       ...validated.examData,
+      status: nextStatus,
       id: existing.id,
       teacherId: existing.teacherId,
       createdAt: existing.createdAt,
       version: existing.version + 1,
-      updatedAt: new Date().toISOString(),
+      versions,
+      updatedAt: nowIso,
     };
     db.teacherExams[existing.id] = updated;
+    appendSecurityLog(db.securityLogs, {
+      eventType: 'CONTENT_VERSION',
+      actorId: teacher.id,
+      role: teacher.role,
+      ip: getClientIp(req),
+      summary: `Updated exam ${existing.id} -> v${updated.version}`,
+    });
     saveDb(db);
     res.json({ exam: updated });
   });
@@ -1956,6 +2049,19 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
     const allowed: ExamStatus[] = ['draft', 'pending-review', 'published', 'scheduled', 'active', 'archived'];
     if (!status || !allowed.includes(status)) {
       return res.status(400).json({ error: 'Invalid status transition' });
+    }
+    if (
+      db.featureFlags.requireTeacherContentApproval &&
+      (status === 'published' || status === 'active')
+    ) {
+      existing.status = 'pending-review';
+      existing.updatedAt = new Date().toISOString();
+      saveDb(db);
+      return res.json({
+        exam: existing,
+        requiresAdminApproval: true,
+        message: 'Content approval is enabled: exam moved to pending-review for Admin approval.',
+      });
     }
     existing.status = status;
     existing.updatedAt = new Date().toISOString();
@@ -2050,7 +2156,7 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
     }
 
     if (publishNow && (exam.status === 'draft' || exam.status === 'scheduled')) {
-      exam.status = 'published';
+      exam.status = db.featureFlags.requireTeacherContentApproval ? 'pending-review' : 'published';
       exam.updatedAt = new Date().toISOString();
     }
 
@@ -2143,7 +2249,10 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
     for (const asgn of Object.values(db.examAssignments)) {
       if (!childSet.has(asgn.studentId)) continue;
       const exam = db.teacherExams[asgn.examId];
-      if (!exam || exam.status === 'draft' || exam.status === 'suspended' || exam.status === 'archived') {
+      const allowedExamStatuses = db.featureFlags.requireTeacherContentApproval
+        ? ['approved', 'published', 'active']
+        : ['published', 'active', 'approved'];
+      if (!exam || !allowedExamStatuses.includes(exam.status)) {
         continue;
       }
 
@@ -2219,8 +2328,9 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
     if ('error' in authRes) return res.status(authRes.status).json({ error: authRes.error });
 
     const exam = db.teacherExams[asgn.examId];
-    if (!exam || (exam.status !== 'published' && exam.status !== 'active')) {
-      return res.status(403).json({ error: 'Exam is not currently published or available' });
+    const allowedStartStatuses = ['published', 'active', 'approved'];
+    if (!exam || !allowedStartStatuses.includes(exam.status)) {
+      return res.status(403).json({ error: 'Exam is not currently published or approved for students' });
     }
 
     const now = Date.now();
@@ -2557,6 +2667,9 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
 
   app.post('/api/level2/progress', (req: AuthenticatedRequest, res) => {
     const db = getDb();
+    if (!db.featureFlags.level2Enabled) {
+      return res.status(403).json({ error: 'Level 2 curriculum is currently disabled', featureDisabled: 'level2Enabled' });
+    }
     const {
       childId,
       lessonId,
@@ -2629,6 +2742,9 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
 
   app.post('/api/level2/assessment/start', (req: AuthenticatedRequest, res) => {
     const db = getDb();
+    if (!db.featureFlags.level2Enabled) {
+      return res.status(403).json({ error: 'Level 2 curriculum is currently disabled', featureDisabled: 'level2Enabled' });
+    }
     const { childId, lessonId, questionCount } = req.body as {
       childId?: string;
       lessonId?: string;
@@ -2813,6 +2929,35 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
       })
       .filter(Boolean);
 
+    const assignedHomeworks = Object.values(db.homeworkSubmissions)
+      .filter((s) => s.studentId === access.id)
+      .map((s) => {
+        const hw = db.homeworks[s.assignmentId];
+        if (!hw || hw.status === 'draft' || hw.status === 'suspended' || hw.status === 'rejected') return null;
+        const effectiveDeadline = Date.parse(s.extendedDeadline || hw.deadline);
+        const effStatus =
+          s.status !== 'completed' && s.status !== 'submitted' && Date.now() > effectiveDeadline
+            ? 'overdue'
+            : s.status;
+        return {
+          submissionId: s.id,
+          assignmentId: hw.id,
+          title: hw.title,
+          subject: hw.subject,
+          homeworkType: hw.homeworkType,
+          teacherName: db.users[hw.teacherId]?.displayName || '',
+          deadline: s.extendedDeadline || hw.deadline,
+          status: effStatus,
+          score: s.score,
+          totalMarks: s.totalMarks,
+          percentage: s.percentage,
+          passed: s.passed,
+          teacherFeedback: s.teacherFeedback,
+          submittedAt: s.submittedAt,
+        };
+      })
+      .filter(Boolean);
+
     res.json({
       child: {
         id: access.id,
@@ -2830,6 +2975,7 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
         needsRevisionLessonIds: l2Revision,
       },
       assignedExams,
+      assignedHomeworks,
     });
   });
 }

@@ -1,7 +1,8 @@
 import React from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import { AppShell } from './components/AppShell';
 import { CelebrationOverlay } from './components/CelebrationOverlay';
+import { StudentHomeworkSection } from './components/StudentHomeworkSection';
 import { NonoLandProvider, useNonoLand } from './context/NonoLandContext';
 import { AchievementsScreen } from './screens/AchievementsScreen';
 import { AcademyScreen } from './screens/AcademyScreen';
@@ -25,7 +26,7 @@ import {
 import { StoriesScreen, StoryReaderScreen } from './screens/StoriesScreen';
 
 const ScreenRouter: React.FC = () => {
-  const { screen } = useNonoLand();
+  const { screen, parentSettings } = useNonoLand();
 
   const fullBleedScreens = [
     'splash',
@@ -55,6 +56,8 @@ const ScreenRouter: React.FC = () => {
         return <AcademyScreen />;
       case 'exams':
         return <ExamsScreen />;
+      case 'homework':
+        return <StudentHomeworkSection />;
       case 'fun-zone':
         return <FunZoneScreen />;
       case 'map':
@@ -90,35 +93,39 @@ const ScreenRouter: React.FC = () => {
 
   if (fullBleedScreens.includes(screen)) {
     return (
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={screen}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-        >
-          {renderScreen()}
-        </motion.div>
-      </AnimatePresence>
+      <MotionConfig reducedMotion={parentSettings.reducedMotion ? 'always' : 'user'}>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={screen}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            {renderScreen()}
+          </motion.div>
+        </AnimatePresence>
+      </MotionConfig>
     );
   }
 
   return (
-    <AppShell>
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={screen}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
-          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-        >
-          {renderScreen()}
-        </motion.div>
-      </AnimatePresence>
-      <CelebrationOverlay />
-    </AppShell>
+    <MotionConfig reducedMotion={parentSettings.reducedMotion ? 'always' : 'user'}>
+      <AppShell>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={screen}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+          >
+            {renderScreen()}
+          </motion.div>
+        </AnimatePresence>
+        <CelebrationOverlay />
+      </AppShell>
+    </MotionConfig>
   );
 };
 

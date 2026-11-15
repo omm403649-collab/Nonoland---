@@ -11,6 +11,10 @@ import type {
   ExamConfig,
   ExamQuestionItem,
   ExamSubject,
+  FeatureFlags,
+  HomeworkAssignment,
+  HomeworkAttachment,
+  HomeworkStudentSubmission,
   Level1LessonProgress,
   Level2LessonProgress,
   Level2ProgressionConfig,
@@ -104,10 +108,23 @@ export interface ImportBatchRecord {
   expiresAt: number;
 }
 
+export interface StoredHomeworkAttachment extends HomeworkAttachment {
+  storedPath: string;
+}
+
+export interface OperationalMetrics {
+  totalApiRequests: number;
+  apiFailures5xx: number;
+  apiClientErrors4xx: number;
+  syncFailures: number;
+  lastErrors: Array<{ route: string; status: number; message: string; timestamp: string }>;
+}
+
 export type StoredChildRecord = ChildProfile & { parentId: string };
 
 export interface ServerDb {
   examConfig: ExamConfig;
+  featureFlags: FeatureFlags;
   users: Record<string, StoredUserRecord>;
   emailIndex: Record<string, string>;
   sessions: Record<string, StoredSessionRecord>;
@@ -125,8 +142,13 @@ export interface ServerDb {
   teacherExams: Record<string, TeacherExam>;
   examAssignments: Record<string, ExamAssignment>;
   assignedExamAttempts: Record<string, AssignedExamAttempt>;
+  homeworks: Record<string, HomeworkAssignment>;
+  homeworkSubmissions: Record<string, HomeworkStudentSubmission>;
+  homeworkAttachments: Record<string, StoredHomeworkAttachment>;
   importBatches: Record<string, ImportBatchRecord>;
   certificates: Record<string, Certificate & { revoked?: boolean }>;
+  processedSyncKeys: Record<string, { childId: string; processedAt: string; summary: string }>;
+  operationalMetrics: OperationalMetrics;
   securityLogs: SecurityEventLog[];
 }
 

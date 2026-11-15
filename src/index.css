@@ -97,7 +97,7 @@
   animation: gentleBob 4s ease-in-out infinite;
 }
 
-/* Respect reduced motion preferences */
+/* Respect reduced motion preferences (OS + Parent Accessibility Setting) */
 @media (prefers-reduced-motion: reduce) {
   .animate-float-slow,
   .animate-drift-cloud,
@@ -108,6 +108,17 @@
   * {
     transition-duration: 0.01ms !important;
   }
+}
+
+html.reduced-motion .animate-float-slow,
+html.reduced-motion .animate-drift-cloud,
+html.reduced-motion .animate-twinkle,
+html.reduced-motion .animate-gentle-bob {
+  animation: none !important;
+}
+html.reduced-motion * {
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }
 
 /* Print Styles for Certificates */

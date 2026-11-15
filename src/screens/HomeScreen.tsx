@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   Award,
   BookOpen,
   ClipboardCheck,
   Compass,
+  FileText,
   FlaskConical,
   Gamepad2,
   GraduationCap,
@@ -27,8 +28,39 @@ import { NonoMood } from '../types/nonoland';
 import { soundEngine } from '../utils/soundEngine';
 
 export const HomeScreen: React.FC = () => {
-  const { activeChild, language, navigate } = useNonoLand();
+  const { activeChild, authSession, language, navigate } = useNonoLand();
   const [nonoMood, setNonoMood] = useState<NonoMood>('waving');
+  const [hwCounts, setHwCounts] = useState<{ active: number; completed: number }>({ active: 0, completed: 0 });
+  const [exCounts, setExCounts] = useState<{ active: number; completed: number }>({ active: 0, completed: 0 });
+
+  useEffect(() => {
+    if (!authSession.authenticated || (authSession.user?.role !== 'student' && authSession.user?.role !== 'parent')) {
+      return;
+    }
+    const q = authSession.user.role === 'student' ? '' : `?childId=${encodeURIComponent(activeChild.id)}`;
+    fetch(`/api/student/homework${q}`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) {
+          setHwCounts({
+            active: (d.newAssignments?.length || 0) + (d.inProgress?.length || 0) + (d.overdue?.length || 0),
+            completed: (d.submitted?.length || 0) + (d.completed?.length || 0),
+          });
+        }
+      })
+      .catch(() => {});
+    fetch(`/api/student/exams${q}`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) {
+          setExCounts({
+            active: (d.available?.length || 0) + (d.inProgress?.length || 0),
+            completed: d.completed?.length || 0,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [authSession.authenticated, authSession.user?.role, activeChild.id]);
 
   const recommendation = getAdaptiveRecommendation(activeChild);
   const recWorld = getWorldById(recommendation.worldId);
@@ -39,6 +71,10 @@ export const HomeScreen: React.FC = () => {
   const ageActivities = GAME_ACTIVITIES.filter((a) =>
     a.ageEligibility.includes(activeChild.ageGroup),
   );
+  const l1Done = Object.values(activeChild.level1Progress || {}).filter((p) => p.status === 'demonstrated').length;
+  const l2Done = Object.values(activeChild.level2Progress || {}).filter((p) => p.status === 'demonstrated').length;
+  const totalLessonsDone = l1Done + l2Done;
+  const journeyPct = Math.min(100, Math.round((totalLessonsDone / 127) * 100));
 
   // Personalized Nono greeting remembering favorite world & recent adventure
   const favWorld = activeChild.favoriteWorldId ? getWorldById(activeChild.favoriteWorldId) : null;
@@ -157,6 +193,83 @@ export const HomeScreen: React.FC = () => {
             </span>
           </div>
         </div>
+      </section>
+
+      {/* STUDENT DASHBOARD STRIP: LEARNING JOURNEY BAR + HOMEWORK + EXAMS */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="lg:col-span-6 nono-card rounded-3xl p-5 bg-white space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-base sm:text-lg font-extrabold text-[#27345C]">
+              {language === 'ar' ? 'شريط رحلتي التعليمية' : 'My Learning Journey'}
+            </h2>
+            <span className="text-xs font-extrabold text-[#8054D9] tabular-nums">
+              {formatNumber(totalLessonsDone, language)} / {formatNumber(127, language)}{' '}
+              {language === 'ar' ? 'درساً' : 'lessons'} ({journeyPct}%)
+            </span>
+          </div>
+          <div className="h-3.5 rounded-full bg-[#FFF8E9] border border-[#27345C]/10 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-[#8054D9] to-[#55D98B] transition-all"
+              style={{ width: `${Math.max(4, journeyPct)}%` }}
+            />
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-[#27345C]/75">
+            <span>
+              {language === 'ar'
+                ? `المستوى ١: ${l1Done}/75 · المستوى ٢: ${l2Done}/52`
+                : `Level 1: ${l1Done}/75 · Level 2: ${l2Done}/52`}
+            </span>
+            <button
+              type="button"
+              onClick={() => navigate('academy')}
+              className="min-h-[44px] px-4 rounded-xl bg-[#8054D9]/12 text-[#8054D9] font-extrabold cursor-pointer hover:bg-[#8054D9]/20"
+            >
+              {language === 'ar' ? 'استكمال الدروس' : 'Continue Lessons'}
+            </button>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => navigate('homework')}
+          className="lg:col-span-3 nono-card rounded-3xl p-5 text-start bg-gradient-to-br from-[#E5F6FF] to-white border-2 border-[#39BDF2]/25 hover:border-[#39BDF2] transition-all cursor-pointer flex flex-col justify-between min-h-[120px]"
+        >
+          <div className="flex items-center justify-between">
+            <FileText className="w-6 h-6 text-[#39BDF2]" />
+            <span className="px-2.5 py-0.5 rounded-lg bg-[#39BDF2]/15 text-[#0369A1] text-xs font-extrabold tabular-nums">
+              {hwCounts.active} {language === 'ar' ? 'جديد' : 'Due'}
+            </span>
+          </div>
+          <div className="mt-3">
+            <h3 className="font-extrabold text-base text-[#27345C]">
+              {language === 'ar' ? 'واجباتي المدرسية' : 'My Homework'}
+            </h3>
+            <p className="text-xs font-bold text-[#27345C]/65 mt-0.5">
+              {language === 'ar' ? `${hwCounts.completed} مكتمل` : `${hwCounts.completed} completed`}
+            </p>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigate('exams')}
+          className="lg:col-span-3 nono-card rounded-3xl p-5 text-start bg-gradient-to-br from-[#FFF8E9] to-white border-2 border-[#FFD84D]/50 hover:border-[#FF9360] transition-all cursor-pointer flex flex-col justify-between min-h-[120px]"
+        >
+          <div className="flex items-center justify-between">
+            <ClipboardCheck className="w-6 h-6 text-[#FF9360]" />
+            <span className="px-2.5 py-0.5 rounded-lg bg-[#FFD84D]/40 text-[#78350F] text-xs font-extrabold tabular-nums">
+              {exCounts.active} {language === 'ar' ? 'متاح' : 'Open'}
+            </span>
+          </div>
+          <div className="mt-3">
+            <h3 className="font-extrabold text-base text-[#27345C]">
+              {language === 'ar' ? 'امتحاناتي' : 'My Exams'}
+            </h3>
+            <p className="text-xs font-bold text-[#27345C]/65 mt-0.5">
+              {language === 'ar' ? `${exCounts.completed} منجز` : `${exCounts.completed} taken`}
+            </p>
+          </div>
+        </button>
       </section>
 
       {/* FEATURED HUBS: LEARNING ACADEMY, OFFICIAL EXAMS & FUN ZONE */}

@@ -87,6 +87,8 @@ export const ParentDashboardScreen: React.FC = () => {
     simulatedOffline,
     setSimulatedOffline,
     pendingSyncCount,
+    offlineQueue,
+    lastSyncedAt,
     syncOfflineQueue,
     resetAllData,
     curatedVideos,
@@ -125,6 +127,22 @@ export const ParentDashboardScreen: React.FC = () => {
       totalMarks?: number;
       percentage?: number;
       passed?: boolean;
+      submittedAt?: string;
+    }>;
+    assignedHomeworks?: Array<{
+      submissionId: string;
+      assignmentId: string;
+      title: LocalizedText;
+      subject: string;
+      homeworkType: string;
+      teacherName: string;
+      deadline: string;
+      status: string;
+      score?: number;
+      totalMarks?: number;
+      percentage?: number;
+      passed?: boolean;
+      teacherFeedback?: string;
       submittedAt?: string;
     }>;
   } | null>(null);
@@ -354,6 +372,50 @@ export const ParentDashboardScreen: React.FC = () => {
       {/* TAB 1: LEARNING REPORTS & DATA-BACKED INSIGHTS */}
       {tab === 'reports' && (
         <div className="space-y-5">
+          {/* Plain-Language Curriculum Summary (X of 127 Lessons) */}
+          {(() => {
+            const l1Mastered = Object.values(activeChild.level1Progress || {}).filter((p) => p.status === 'demonstrated').length;
+            const l2Mastered = Object.values(activeChild.level2Progress || {}).filter((p) => p.status === 'demonstrated').length;
+            const totalDone = l1Mastered + l2Mastered;
+            const strongestSkill = (Object.keys(activeChild.skillProgress) as SkillId[])
+              .filter((k) => activeChild.skillProgress[k].attempts > 0)
+              .sort((a, b) => activeChild.skillProgress[b].accuracy - activeChild.skillProgress[a].accuracy)[0];
+            const needsSkill = (Object.keys(activeChild.skillProgress) as SkillId[])
+              .filter((k) => activeChild.skillProgress[k].attempts > 0 && activeChild.skillProgress[k].accuracy < 75)
+              .sort((a, b) => activeChild.skillProgress[a].accuracy - activeChild.skillProgress[b].accuracy)[0];
+
+            return (
+              <div className="nono-card rounded-3xl p-5 bg-gradient-to-br from-[#F4EEFF] via-white to-[#FFF8E9] border border-[#8054D9]/20 flex flex-wrap items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-extrabold text-[#8054D9]">
+                    {language === 'ar' ? 'ملخص الأهل الواضح' : 'Clear Parent Summary'}
+                  </p>
+                  <h2 className="text-xl font-extrabold text-[#27345C]">
+                    {language === 'ar'
+                      ? `أكمل ${activeChild.displayName} ${formatNumber(totalDone, language)} من أصل ١٢٧ درساً`
+                      : `${activeChild.displayName} has completed ${totalDone} of 127 lessons`}
+                  </h2>
+                  <p className="text-xs font-bold text-[#27345C]/75">
+                    {strongestSkill
+                      ? language === 'ar'
+                        ? `أقوى مهارة: ${t(SKILL_LABELS[strongestSkill], language)} (${activeChild.skillProgress[strongestSkill].accuracy}%)`
+                        : `Strongest area: ${t(SKILL_LABELS[strongestSkill], language)} (${activeChild.skillProgress[strongestSkill].accuracy}%)`
+                      : language === 'ar'
+                        ? 'سيظهر تحليل المهارات بمجرد بدء الأنشطة المسجلة.'
+                        : 'Skill strengths appear as soon as recorded practice begins.'}
+                    {needsSkill &&
+                      (language === 'ar'
+                        ? ` · يحتاج لمزيد من التدريب اللطيف في: ${t(SKILL_LABELS[needsSkill], language)}`
+                        : ` · Gentle practice suggested in: ${t(SKILL_LABELS[needsSkill], language)}`)}
+                  </p>
+                </div>
+                <span className="px-4 py-2 rounded-2xl bg-white border border-[#8054D9]/20 font-extrabold text-lg text-[#8054D9] tabular-nums">
+                  {totalDone} / 127
+                </span>
+              </div>
+            );
+          })()}
+
           {/* KPI Strip */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="nono-card rounded-2xl p-4">
@@ -569,6 +631,55 @@ export const ParentDashboardScreen: React.FC = () => {
                               ? 'قيد الانتظار'
                               : 'Assigned'}
                         </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+          {/* Assigned Homework & Authorized Teacher Feedback */}
+          {authSession.authenticated &&
+            parentOverview?.assignedHomeworks &&
+            parentOverview.assignedHomeworks.length > 0 && (
+              <div className="nono-card rounded-3xl p-6 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-lg font-extrabold text-[#27345C] flex items-center gap-2">
+                    <BookOpen className="w-5 h-5 text-[#39BDF2]" />
+                    <span>
+                      {language === 'ar'
+                        ? 'الواجبات المدرسية وملاحظات المعلم'
+                        : 'Assigned Homework & Teacher Feedback'}
+                    </span>
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => navigate('homework')}
+                    className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#39BDF2] text-white text-xs font-bold cursor-pointer"
+                  >
+                    {language === 'ar' ? 'فتح الواجبات' : 'Open Homework'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {parentOverview.assignedHomeworks.map((hw) => (
+                    <div
+                      key={hw.submissionId}
+                      className="p-4 rounded-2xl bg-[#E5F6FF]/50 border border-[#39BDF2]/25 space-y-1.5 text-xs"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-extrabold text-sm text-[#27345C]">{t(hw.title, language)}</p>
+                        <span className="px-2 py-0.5 rounded-lg bg-white border font-extrabold text-[#8054D9]">
+                          {hw.status}
+                          {hw.percentage !== undefined ? ` · ${hw.percentage}%` : ''}
+                        </span>
+                      </div>
+                      <p className="text-[#27345C]/70 font-bold">
+                        {hw.teacherName} · {hw.subject} · Due {new Date(hw.deadline).toLocaleDateString()}
+                      </p>
+                      {hw.teacherFeedback && (
+                        <p className="p-2 rounded-xl bg-white text-[#14532D] font-bold">
+                          {language === 'ar' ? 'ملاحظة المعلم:' : 'Teacher feedback:'} {hw.teacherFeedback}
+                        </p>
                       )}
                     </div>
                   ))}
@@ -1057,7 +1168,7 @@ export const ParentDashboardScreen: React.FC = () => {
                 />
               </label>
 
-              <label className="flex items-center justify-between p-3 rounded-2xl bg-[#FFF8E9] cursor-pointer">
+              <label className="min-h-[44px] flex items-center justify-between p-3 rounded-2xl bg-[#FFF8E9] cursor-pointer">
                 <span className="font-bold text-sm">
                   {language === 'ar' ? 'القراءة الصوتية للتعليمات والقصص' : 'Voice Narration for Instructions & Stories'}
                 </span>
@@ -1066,6 +1177,25 @@ export const ParentDashboardScreen: React.FC = () => {
                   checked={parentSettings.voiceNarration}
                   onChange={(e) => updateParentSettings({ voiceNarration: e.target.checked })}
                   className="w-5 h-5 accent-[#8054D9]"
+                />
+              </label>
+
+              <label className="min-h-[44px] flex items-center justify-between p-3 rounded-2xl bg-[#F4EEFF] border border-[#8054D9]/20 cursor-pointer">
+                <div>
+                  <span className="font-bold text-sm block text-[#27345C]">
+                    {language === 'ar' ? 'تقليل الحركة (إمكانية الوصول)' : 'Reduced Motion Accessibility'}
+                  </span>
+                  <span className="text-xs text-[#27345C]/65">
+                    {language === 'ar'
+                      ? 'يوقف الاهتزازات والرسوم المتحركة المستمرة لراحة الطفل البصرية.'
+                      : 'Minimizes animations and floating motion across the platform.'}
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={Boolean(parentSettings.reducedMotion)}
+                  onChange={(e) => updateParentSettings({ reducedMotion: e.target.checked })}
+                  className="w-5 h-5 accent-[#8054D9] shrink-0"
                 />
               </label>
 
@@ -1219,14 +1349,14 @@ export const ParentDashboardScreen: React.FC = () => {
               <div className="p-3 rounded-2xl bg-[#FFD84D]/25 flex items-center justify-between text-xs font-bold">
                 <span>
                   {language === 'ar'
-                    ? `يوجد ${pendingSyncCount} نشاط بانتظار المزامنة`
-                    : `${pendingSyncCount} queued attempt(s) awaiting sync`}
+                    ? `يوجد ${pendingSyncCount} نشاط محفوظ محلياً بانتظار المزامنة`
+                    : `${pendingSyncCount} queued attempt(s) saved locally`}
                 </span>
                 {isOnline && (
                   <button
                     type="button"
-                    onClick={syncOfflineQueue}
-                    className="px-3 py-1 rounded-lg bg-[#27345C] text-white flex items-center gap-1 cursor-pointer"
+                    onClick={() => void syncOfflineQueue()}
+                    className="min-h-[38px] px-3 py-1 rounded-lg bg-[#27345C] text-white flex items-center gap-1 cursor-pointer"
                   >
                     <RefreshCw className="w-3 h-3" />
                     <span>{language === 'ar' ? 'مزامنة الآن' : 'Sync Now'}</span>
@@ -1234,6 +1364,49 @@ export const ParentDashboardScreen: React.FC = () => {
                 )}
               </div>
             )}
+
+            <div className="p-3 rounded-2xl bg-[#FFF8E9] border border-[#27345C]/10 space-y-2 text-xs">
+              <div className="flex items-center justify-between font-extrabold text-[#27345C]">
+                <span>{language === 'ar' ? 'سجل المزامنة والعمل دون إنترنت' : 'Offline Activity Queue Status'}</span>
+                {lastSyncedAt && (
+                  <span className="text-[11px] font-bold text-[#27345C]/65 tabular-nums">
+                    {language === 'ar' ? 'آخر مزامنة:' : 'Last synced:'} {new Date(lastSyncedAt).toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+              {offlineQueue.length === 0 ? (
+                <p className="text-[#27345C]/65 font-bold">
+                  {language === 'ar'
+                    ? 'جميع الأنشطة متزامنة ولا توجد عناصر معلّقة.'
+                    : 'All recorded activities are synced cleanly.'}
+                </p>
+              ) : (
+                <div className="max-h-36 overflow-y-auto space-y-1.5">
+                  {offlineQueue.slice(-8).reverse().map((q) => (
+                    <div key={q.idempotencyKey} className="flex items-center justify-between p-2 rounded-xl bg-white border border-[#27345C]/10">
+                      <span className="font-bold text-[#27345C]">
+                        {String(q.payload.activityId || q.kind)}
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded-lg font-extrabold ${
+                          q.status === 'synced'
+                            ? 'bg-[#55D98B]/25 text-[#14532D]'
+                            : 'bg-[#FFD84D]/40 text-[#78350F]'
+                        }`}
+                      >
+                        {q.status === 'synced'
+                          ? language === 'ar'
+                            ? 'تمت المزامنة ✓'
+                            : 'Synced to Server ✓'
+                          : language === 'ar'
+                            ? 'محفوظ محلياً'
+                            : 'Saved Locally'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {LEARNING_WORLDS.map((w) => {

@@ -6,6 +6,7 @@ import {
 } from '../data/rewardsAndRoom';
 import { getWorldById } from '../data/worlds';
 import { DEFAULT_CHARACTER_OUTFITS, INITIAL_CURATED_VIDEOS } from '../data/funZoneData';
+import { evaluateSkillUpdate } from '../engine/adaptiveEngine';
 import {
   AgeGroupId,
   AppScreen,
@@ -18,11 +19,13 @@ import {
   ConceptStatus,
   CuratedYouTubeVideo,
   ExamAttemptSummary,
+  FeatureFlags,
   Language,
   LearningAttempt,
   Level1LessonProgress,
   Level2LessonProgress,
   LocalizedText,
+  OfflineSyncItem,
   ParentAccount,
   ParentSettings,
   SavedDrawing,
@@ -31,6 +34,7 @@ import {
   WorldId,
 } from '../types/nonoland';
 import { soundEngine } from '../utils/soundEngine';
+import { DEFAULT_FEATURE_FLAGS } from '../utils/validation';
 
 export interface AuthSessionState {
   authenticated: boolean;
@@ -48,6 +52,8 @@ interface PersistedState {
   activeChildId: string | null;
   simulatedOffline: boolean;
   curatedVideos?: CuratedYouTubeVideo[];
+  offlineQueue?: OfflineSyncItem[];
+  lastSyncedAt?: string;
 }
 
 const DEFAULT_SETTINGS: ParentSettings = {
@@ -59,6 +65,7 @@ const DEFAULT_SETTINGS: ParentSettings = {
   dailyScreenTimeMinutes: 45,
   allowLocalAudioSynthesis: true,
   offlineSyncEnabled: true,
+  reducedMotion: false,
 };
 
 function getInitialPersistedState(): PersistedState {
@@ -148,7 +155,11 @@ interface NonoLandContextValue {
   simulatedOffline: boolean;
   setSimulatedOffline: (val: boolean) => void;
   pendingSyncCount: number;
-  syncOfflineQueue: () => void;
+  offlineQueue: OfflineSyncItem[];
+  lastSyncedAt?: string;
+  syncOfflineQueue: () => Promise<void>;
+  featureFlags: FeatureFlags;
+  refreshFeatureFlags: () => Promise<void>;
   resetAllData: () => void;
   recordConceptInteraction: (input: {
     conceptId: string;
@@ -198,9 +209,22 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     user: null,
     csrfToken: null,
   });
+  const [featureFlags, setFeatureFlags] = useState<FeatureFlags>(DEFAULT_FEATURE_FLAGS);
   const [browserOnline, setBrowserOnline] = useState(
     typeof navigator !== 'undefined' ? navigator.onLine : true,
   );
+
+  const refreshFeatureFlags = async () => {
+    try {
+      const res = await fetch('/api/config/features');
+      if (res.ok) {
+        const d = (await res.json()) as { featureFlags?: FeatureFlags };
+        if (d.featureFlags) setFeatureFlags(d.featureFlags);
+      }
+    } catch {
+      // Offline / cached fallback keeps defaults
+    }
+  };
 
   const refreshAuthSession = async (): Promise<AuthSessionState | null> => {
     try {
@@ -247,6 +271,7 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   useEffect(() => {
     void refreshAuthSession();
+    void refreshFeatureFlags();
   }, []);
 
   const activeChild = useMemo(() => {
@@ -268,10 +293,14 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [persisted]);
 
-  // Sync HTML dir/lang & sound engine
+  // Sync HTML dir/lang, reduced-motion class & sound engine
   useEffect(() => {
     document.documentElement.lang = language;
     document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
+    document.documentElement.classList.toggle(
+      'reduced-motion',
+      Boolean(persisted.parentSettings.reducedMotion),
+    );
     soundEngine.updateSettings({ ...persisted.parentSettings, language });
   }, [language, persisted.parentSettings]);
 
@@ -471,8 +500,10 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const isFirstCompletion = !activeChild.completedActivityIds.includes(input.activityId);
     const starsEarned = isFirstCompletion ? (accuracy >= 80 ? 3 : 2) : 1;
 
+    const idempotencyKey = `sync_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const attempt: LearningAttempt = {
       id: `att-${Date.now()}`,
+      idempotencyKey,
       activityId: input.activityId,
       worldId: input.worldId,
       skillId: input.skillId,
@@ -483,14 +514,36 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       durationSeconds: Math.max(10, input.durationSeconds),
       starsEarned,
       completedAt: new Date().toISOString(),
-      synced: isOnline,
+      synced: isOnline && !authSession.authenticated,
     };
+
+    const queueItem: OfflineSyncItem | null =
+      authSession.authenticated && !activeChild.id.startsWith('demo-')
+        ? {
+            idempotencyKey,
+            childId: activeChild.id,
+            kind: 'game-attempt',
+            payload: {
+              activityId: input.activityId,
+              worldId: input.worldId,
+              skillId: input.skillId,
+              starsEarned,
+              durationSeconds: Math.max(10, input.durationSeconds),
+              accuracy,
+            },
+            createdAt: attempt.completedAt,
+            status: 'local-only',
+          }
+        : null;
 
     let unlockedBadge: string | null = null;
     let issuedCert: Certificate | null = null;
 
     setPersisted((prev) => ({
       ...prev,
+      offlineQueue: queueItem
+        ? [queueItem, ...(prev.offlineQueue || [])].slice(0, 120)
+        : prev.offlineQueue,
       children: prev.children.map((c) => {
         if (c.id !== activeChild.id) return c;
 
@@ -501,21 +554,11 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           : [...c.completedActivityIds, input.activityId];
 
         const prevSkill = c.skillProgress[input.skillId];
-        const totalAttempts = prevSkill.attempts + 1;
-        const totalCorrect = prevSkill.correctCount + (accuracy >= 70 ? 1 : 0);
-        const avgAcc =
-          prevSkill.attempts === 0
-            ? accuracy
-            : Math.round((prevSkill.accuracy * prevSkill.attempts + accuracy) / totalAttempts);
-        const nextStreak = accuracy >= 70 ? prevSkill.streak + 1 : 0;
-        const masteryLevel =
-          totalAttempts >= 4 && avgAcc >= 85
-            ? 'mastered'
-            : totalAttempts >= 2 && avgAcc >= 75
-              ? 'confident'
-              : totalAttempts >= 1
-                ? 'growing'
-                : 'exploring';
+        const nextSkill = evaluateSkillUpdate(prevSkill, {
+          accuracy,
+          isAssessment: false,
+          nowIso: attempt.completedAt,
+        });
 
         const nextBadges = [...c.unlockedBadges];
         if (!nextBadges.includes('first-spark')) {
@@ -583,15 +626,7 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           totalLearningMinutes: c.totalLearningMinutes + Math.max(1, Math.round(input.durationSeconds / 60)),
           skillProgress: {
             ...c.skillProgress,
-            [input.skillId]: {
-              skillId: input.skillId,
-              attempts: totalAttempts,
-              correctCount: totalCorrect,
-              accuracy: avgAcc,
-              streak: nextStreak,
-              masteryLevel,
-              lastPracticedAt: attempt.completedAt,
-            },
+            [input.skillId]: nextSkill,
           },
         };
       }),
@@ -624,20 +659,12 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           const item = result.skillBreakdown[skillId];
           if (!item || item.total === 0) return;
           const pct = Math.round((item.correct / item.total) * 100);
-          const existing = updatedSkills[skillId];
-          const nextAttempts = existing.attempts + 1;
-          const nextAcc =
-            existing.attempts === 0
-              ? pct
-              : Math.round((existing.accuracy * existing.attempts + pct) / nextAttempts);
-          updatedSkills[skillId] = {
-            ...existing,
-            attempts: nextAttempts,
-            correctCount: existing.correctCount + item.correct,
-            accuracy: nextAcc,
-            masteryLevel: nextAcc >= 85 ? 'confident' : nextAcc >= 60 ? 'growing' : 'exploring',
-            lastPracticedAt: result.date,
-          };
+          updatedSkills[skillId] = evaluateSkillUpdate(updatedSkills[skillId], {
+            accuracy: pct,
+            isAssessment: true,
+            isUnseenCheck: true,
+            nowIso: result.date,
+          });
         });
 
         return {
@@ -770,24 +797,94 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }));
   };
 
+  const offlineQueue = persisted.offlineQueue || [];
+
   const pendingSyncCount = useMemo(() => {
-    return persisted.children.reduce(
+    const queuePending = (persisted.offlineQueue || []).filter((i) => i.status === 'local-only').length;
+    const attemptPending = persisted.children.reduce(
       (sum, c) => sum + c.attempts.filter((a) => !a.synced).length,
       0,
     );
-  }, [persisted.children]);
+    return Math.max(queuePending, attemptPending);
+  }, [persisted.children, persisted.offlineQueue]);
 
-  const syncOfflineQueue = () => {
-    if (!isOnline) return;
+  const syncOfflineQueue = async () => {
+    if (!isOnline || !persisted.parentSettings.offlineSyncEnabled) return;
+    const localQueue = (persisted.offlineQueue || []).filter((i) => i.status === 'local-only');
+
+    if (authSession.authenticated && authSession.csrfToken && localQueue.length > 0) {
+      const byChild = new Map<string, OfflineSyncItem[]>();
+      for (const item of localQueue) {
+        const list = byChild.get(item.childId) || [];
+        list.push(item);
+        byChild.set(item.childId, list);
+      }
+
+      const confirmedKeys = new Set<string>();
+      for (const [cid, items] of byChild.entries()) {
+        try {
+          const res = await fetch('/api/student/sync', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-csrf-token': authSession.csrfToken,
+            },
+            body: JSON.stringify({ childId: cid, items }),
+          });
+          if (res.ok) {
+            const data = (await res.json()) as { syncedKeys?: string[]; duplicateKeys?: string[] };
+            (data.syncedKeys || []).forEach((k) => confirmedKeys.add(k));
+            (data.duplicateKeys || []).forEach((k) => confirmedKeys.add(k));
+          }
+        } catch {
+          // Leave items marked local-only until connectivity restores
+        }
+      }
+
+      if (confirmedKeys.size > 0) {
+        soundEngine.playSuccess();
+        const nowIso = new Date().toISOString();
+        setPersisted((prev) => ({
+          ...prev,
+          lastSyncedAt: nowIso,
+          offlineQueue: (prev.offlineQueue || []).map((i) =>
+            confirmedKeys.has(i.idempotencyKey) ? { ...i, status: 'synced' } : i,
+          ),
+          children: prev.children.map((c) => ({
+            ...c,
+            attempts: c.attempts.map((a) =>
+              !a.idempotencyKey || confirmedKeys.has(a.idempotencyKey)
+                ? { ...a, synced: true }
+                : a,
+            ),
+          })),
+        }));
+      }
+      return;
+    }
+
+    // Demo/unauthenticated local mode
     soundEngine.playSuccess();
+    const nowIso = new Date().toISOString();
     setPersisted((prev) => ({
       ...prev,
+      lastSyncedAt: nowIso,
+      offlineQueue: (prev.offlineQueue || []).map((i) => ({ ...i, status: 'synced' })),
       children: prev.children.map((c) => ({
         ...c,
         attempts: c.attempts.map((a) => ({ ...a, synced: true })),
       })),
     }));
   };
+
+  // Auto-sync queued items when connectivity comes back online
+  useEffect(() => {
+    if (isOnline && pendingSyncCount > 0) {
+      void syncOfflineQueue();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline, pendingSyncCount, authSession.authenticated]);
 
   const resetAllData = () => {
     localStorage.removeItem(STORAGE_KEY);
@@ -1153,7 +1250,11 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setSimulatedOffline: (val) =>
           setPersisted((prev) => ({ ...prev, simulatedOffline: val })),
         pendingSyncCount,
+        offlineQueue,
+        lastSyncedAt: persisted.lastSyncedAt,
         syncOfflineQueue,
+        featureFlags,
+        refreshFeatureFlags,
         resetAllData,
         recordConceptInteraction,
         recordLevel1Progress,

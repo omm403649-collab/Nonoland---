@@ -59,6 +59,7 @@ export type AppScreen =
   | 'home'
   | 'academy'
   | 'exams'
+  | 'homework'
   | 'fun-zone'
   | 'map'
   | 'world-detail'
@@ -276,7 +277,13 @@ export interface SecurityEventLog {
     | 'TEACHER_ACTION'
     | 'BULK_IMPORT'
     | 'STUDENT_PROGRESS_VIEW'
-    | 'ACCESS_DENIED';
+    | 'ACCESS_DENIED'
+    | 'CONTENT_REVIEW'
+    | 'CONTENT_VERSION'
+    | 'FEATURE_FLAG_CHANGE'
+    | 'HOMEWORK_ACTION'
+    | 'BACKUP_RESTORE'
+    | 'OFFLINE_SYNC';
   actorId?: string;
   role?: string;
   ip?: string;
@@ -388,6 +395,7 @@ export interface ParentSettings {
   dailyScreenTimeMinutes: number;
   allowLocalAudioSynthesis: boolean;
   offlineSyncEnabled: boolean;
+  reducedMotion?: boolean;
 }
 
 export interface SubscriptionState {
@@ -396,18 +404,32 @@ export interface SubscriptionState {
   renewsAt?: string;
 }
 
+export type AdaptiveDifficultyTier = 'easy' | 'medium' | 'advanced';
+
 export interface SkillProgress {
   skillId: SkillId;
   attempts: number;
   correctCount: number;
   accuracy: number; // 0 - 100
   streak: number;
+  sustainedStreak?: number;
+  difficultyTier?: AdaptiveDifficultyTier;
   masteryLevel: 'exploring' | 'growing' | 'confident' | 'mastered';
   lastPracticedAt?: string;
+  nextReviewDueAt?: string;
+  reviewIntervalDays?: number;
+  masteryReason?: LocalizedText;
+  evidenceSummary?: {
+    assessmentsCount: number;
+    activitiesCount: number;
+    unseenItemsCorrect: number;
+    retentionPassed: boolean;
+  };
 }
 
 export interface LearningAttempt {
   id: string;
+  idempotencyKey?: string;
   activityId: string;
   worldId: WorldId;
   skillId: SkillId;
@@ -419,6 +441,15 @@ export interface LearningAttempt {
   starsEarned: number;
   completedAt: string;
   synced: boolean;
+}
+
+export interface OfflineSyncItem {
+  idempotencyKey: string;
+  childId: string;
+  kind: 'game-attempt' | 'level1-progress' | 'level2-progress';
+  payload: Record<string, unknown>;
+  createdAt: string;
+  status: 'local-only' | 'synced';
 }
 
 export interface AssessmentResult {
@@ -695,6 +726,39 @@ export interface TeacherQuestionOption {
   visual?: string;
 }
 
+export type ContentGovernanceStatus =
+  | 'draft'
+  | 'pending-review'
+  | 'approved'
+  | 'rejected'
+  | 'published'
+  | 'suspended'
+  | 'archived';
+
+export interface ContentVersionEntry {
+  version: number;
+  editedBy: string;
+  editedByName?: string;
+  editedAt: string;
+  reason: string;
+  snapshot: Record<string, unknown>;
+}
+
+export interface QuestionQualityFlag {
+  code:
+    | 'MISSING_AR_OR_EN'
+    | 'MISSING_AUDIO_CUE'
+    | 'MISSING_VISUAL'
+    | 'DUPLICATE_PROMPT'
+    | 'DUPLICATE_OPTIONS'
+    | 'LOW_OPTION_COUNT'
+    | 'SUBJECT_LESSON_MISMATCH'
+    | 'BROKEN_MEDIA_REF'
+    | 'INVALID_MARKS';
+  severity: 'warning' | 'error';
+  message: string;
+}
+
 export interface TeacherQuestion {
   id: string;
   teacherId: string;
@@ -720,7 +784,13 @@ export interface TeacherQuestion {
   feedbackCorrect: LocalizedText;
   feedbackIncorrect: LocalizedText;
   active: boolean;
+  approvalStatus?: ContentGovernanceStatus;
+  adminFeedback?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  qualityFlags?: QuestionQualityFlag[];
   version: number;
+  versions?: ContentVersionEntry[];
   createdAt: string;
   updatedAt: string;
 }
@@ -728,6 +798,8 @@ export interface TeacherQuestion {
 export type ExamStatus =
   | 'draft'
   | 'pending-review'
+  | 'approved'
+  | 'rejected'
   | 'published'
   | 'scheduled'
   | 'active'
@@ -759,7 +831,10 @@ export interface TeacherExam {
   showCorrectAnswers: boolean;
   status: ExamStatus;
   adminReviewNote?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
   version: number;
+  versions?: ContentVersionEntry[];
   createdAt: string;
   updatedAt: string;
 }
@@ -950,5 +1025,102 @@ export interface Level2ProgressionConfig {
   allowOpenExploration: boolean;
   minLevel1DemonstratedForBadge: number;
   requirePlacementOrMasteryForOfficialExam: boolean;
+}
+
+// =========================================================================
+// HOMEWORK & ASSIGNMENTS, FEATURE FLAGS & OPERATIONAL GOVERNANCE
+// =========================================================================
+
+export type HomeworkType =
+  | 'multiple-choice'
+  | 'picture-matching'
+  | 'audio-activity'
+  | 'reading-practice'
+  | 'writing-practice'
+  | 'math-exercise'
+  | 'interactive-game'
+  | 'teacher-questions';
+
+export interface HomeworkAttachment {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  kind: 'image' | 'audio' | 'document';
+  url: string;
+  uploadedBy: string;
+  uploadedAt: string;
+}
+
+export interface HomeworkAssignment {
+  id: string;
+  teacherId: string;
+  title: LocalizedText;
+  instructions: LocalizedText;
+  subject: TeacherSubject | 'comprehensive';
+  level: 1 | 2;
+  lessonIds: string[];
+  homeworkType: HomeworkType;
+  questionIds: string[];
+  questionSnapshots?: Record<string, TeacherQuestion>;
+  attachments: HomeworkAttachment[];
+  assignedClassIds: string[];
+  assignedStudentIds: string[];
+  startDate: string;
+  deadline: string;
+  maxAttempts: number;
+  passingPercentage: number;
+  status: ContentGovernanceStatus;
+  adminFeedback?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  version: number;
+  versions?: ContentVersionEntry[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type HomeworkSubmissionStatus =
+  | 'assigned'
+  | 'opened'
+  | 'in-progress'
+  | 'submitted'
+  | 'completed'
+  | 'overdue';
+
+export interface HomeworkStudentSubmission {
+  id: string;
+  assignmentId: string;
+  homeworkVersion: number;
+  studentId: string;
+  teacherId: string;
+  openedAt?: string;
+  startedAt?: string;
+  submittedAt?: string;
+  completedAt?: string;
+  attemptCount: number;
+  extendedDeadline?: string;
+  extensionReason?: string;
+  status: HomeworkSubmissionStatus;
+  answers: Record<string, string | string[] | Record<string, string>>;
+  textResponse?: string;
+  score?: number;
+  totalMarks?: number;
+  percentage?: number;
+  passed?: boolean;
+  teacherFeedback?: string;
+  gradedAt?: string;
+  review?: AssignedExamReviewItem[];
+}
+
+export interface FeatureFlags {
+  level2Enabled: boolean;
+  teacherHomeworkEnabled: boolean;
+  paidAssessmentsEnabled: boolean;
+  certificatesEnabled: boolean;
+  offlineLearningEnabled: boolean;
+  newSubjectsEnabled: boolean;
+  newGameModulesEnabled: boolean;
+  requireTeacherContentApproval: boolean;
 }
 
