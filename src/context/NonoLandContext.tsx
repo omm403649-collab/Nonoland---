@@ -6,6 +6,15 @@ import {
 } from '../data/rewardsAndRoom';
 import { getWorldById } from '../data/worlds';
 import { DEFAULT_CHARACTER_OUTFITS, INITIAL_CURATED_VIDEOS } from '../data/funZoneData';
+import {
+  DEFAULT_AVATAR_CONFIG,
+  DEFAULT_NEXT_MONTH_PLAN,
+  DEFAULT_PARENT_SCHEDULE,
+  DEFAULT_PET_STATE,
+  DEFAULT_ROOM_CONFIG,
+  REWARD_SHOP_ITEMS,
+} from '../data/worldCatalog';
+import { getCurrentMonthKey, getTodayDayKey } from '../engine/monthlyReportEngine';
 import { evaluateSkillUpdate } from '../engine/adaptiveEngine';
 import {
   AgeGroupId,
@@ -13,21 +22,29 @@ import {
   AssessmentResult,
   Certificate,
   CharacterOutfit,
+  ChildAvatarConfig,
   ChildProfile,
   ConceptDomain,
   ConceptMasteryStage,
   ConceptStatus,
+  CreativeProject,
   CuratedYouTubeVideo,
+  CustomStory,
   ExamAttemptSummary,
   FeatureFlags,
   Language,
   LearningAttempt,
+  LearningPlanGoal,
   Level1LessonProgress,
   Level2LessonProgress,
   LocalizedText,
   OfflineSyncItem,
   ParentAccount,
+  ParentSchedulePreferences,
   ParentSettings,
+  PetSpeciesId,
+  PlacedRoomItem,
+  RoomConfig,
   SavedDrawing,
   SkillId,
   SubscriptionState,
@@ -145,11 +162,31 @@ interface NonoLandContextValue {
     durationSeconds: number;
   }) => void;
   recordAssessmentResult: (result: Omit<AssessmentResult, 'id' | 'date'>) => AssessmentResult;
-  completeStory: (storyId: string, rewardStars: number) => void;
+  completeStory: (storyId: string, rewardStars: number, title?: LocalizedText) => void;
   saveDrawingToRoom: (drawing: Omit<SavedDrawing, 'id' | 'createdAt'>) => void;
   placeRoomItem: (itemId: string) => void;
   moveRoomItem: (instanceId: string, x: number, y: number) => void;
   removePlacedRoomItem: (instanceId: string) => void;
+  saveRoomState: (roomConfig: RoomConfig, placedRoomItems?: PlacedRoomItem[]) => Promise<void>;
+  saveAvatarConfig: (avatarConfig: ChildAvatarConfig) => Promise<void>;
+  interactWithPet: (input: {
+    action: 'adopt' | 'rename' | 'feed' | 'play' | 'decorate';
+    speciesId?: PetSpeciesId;
+    presetNameId?: string;
+    accessoryId?: string;
+    habitatId?: string;
+  }) => Promise<void>;
+  completeLabExperiment: (experimentId: string, starsReward?: number) => Promise<{ starsAdded: number }>;
+  createCustomStory: (input: Omit<CustomStory, 'id' | 'createdAt'>) => Promise<void>;
+  deleteCustomStory: (storyId: string) => Promise<void>;
+  saveCreativeProject: (input: Omit<CreativeProject, 'id' | 'createdAt'>) => Promise<void>;
+  deleteCreativeProject: (projectId: string) => Promise<void>;
+  redeemShopItem: (itemId: string) => Promise<{ ok: boolean; error?: string }>;
+  claimDailyMission: (missionId: string) => Promise<{ ok: boolean; error?: string; starsAdded?: number }>;
+  saveLearningPlan: (input: {
+    parentSchedule?: ParentSchedulePreferences;
+    nextMonthPlan?: LearningPlanGoal[];
+  }) => Promise<void>;
   toggleDownloadWorld: (worldId: WorldId) => void;
   isOnline: boolean;
   simulatedOffline: boolean;
@@ -683,25 +720,57 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return result;
   };
 
-  const completeStory = (storyId: string, rewardStars: number) => {
+  const isServerChild = (childId: string) =>
+    Boolean(
+      authSession.authenticated &&
+        authSession.csrfToken &&
+        !childId.startsWith('sample-') &&
+        !childId.startsWith('demo-'),
+    );
+
+  const replaceServerChild = (serverChild?: ChildProfile) => {
+    if (!serverChild) return;
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) => (c.id === serverChild.id ? serverChild : c)),
+    }));
+  };
+
+  const completeStory = (storyId: string, rewardStars: number, title?: LocalizedText) => {
     setPersisted((prev) => ({
       ...prev,
       children: prev.children.map((c) => {
         if (c.id !== activeChild.id) return c;
         const alreadyCompleted = c.completedStoryIds.includes(storyId);
-        const starsAdd = alreadyCompleted ? 1 : rewardStars;
+        const starsAdd = alreadyCompleted ? 0 : rewardStars;
         const nextBadges = c.unlockedBadges.includes('story-weaver')
           ? c.unlockedBadges
           : [...c.unlockedBadges, 'story-weaver'];
+        const days = Array.from(new Set([...(c.activeDaysHistory || []), getTodayDayKey()]));
         return {
           ...c,
           stars: c.stars + starsAdd,
           completedStoryIds: alreadyCompleted ? c.completedStoryIds : [...c.completedStoryIds, storyId],
           unlockedBadges: nextBadges,
+          activeDaysHistory: days,
         };
       }),
     }));
     soundEngine.playCelebration();
+    if (isServerChild(activeChild.id)) {
+      void fetch(`/api/children/${encodeURIComponent(activeChild.id)}/stories/complete`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-csrf-token': authSession.csrfToken!,
+        },
+        body: JSON.stringify({ storyId, title }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => d?.child && replaceServerChild(d.child))
+        .catch(() => {});
+    }
   };
 
   const saveDrawingToRoom = (drawing: Omit<SavedDrawing, 'id' | 'createdAt'>) => {
@@ -721,63 +790,528 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           ...c,
           stars: c.stars + 2,
           unlockedBadges: nextBadges,
-          savedDrawings: [fullDrawing, ...c.savedDrawings].slice(0, 8),
+          savedDrawings: [fullDrawing, ...c.savedDrawings].slice(0, 12),
         };
       }),
     }));
     soundEngine.playSuccess();
+    if (isServerChild(activeChild.id)) {
+      void fetch(`/api/children/${encodeURIComponent(activeChild.id)}/creative-projects`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-csrf-token': authSession.csrfToken!,
+        },
+        body: JSON.stringify({ kind: 'drawing', title: drawing.title, dataUrl: drawing.dataUrl }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => d?.child && replaceServerChild(d.child))
+        .catch(() => {});
+    }
+  };
+
+  const syncRoomToServer = (roomConfig: RoomConfig | undefined, placedRoomItems: PlacedRoomItem[]) => {
+    if (!isServerChild(activeChild.id)) return;
+    void fetch(`/api/children/${encodeURIComponent(activeChild.id)}/room`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-csrf-token': authSession.csrfToken!,
+      },
+      body: JSON.stringify({ roomConfig, placedRoomItems }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.child && replaceServerChild(d.child))
+      .catch(() => {});
   };
 
   const placeRoomItem = (itemId: string) => {
     soundEngine.playPop();
+    let nextPlaced: PlacedRoomItem[] = [];
     setPersisted((prev) => ({
       ...prev,
       children: prev.children.map((c) => {
         if (c.id !== activeChild.id) return c;
         const offset = (c.placedRoomItems.length * 13) % 55;
-        return {
-          ...c,
-          placedRoomItems: [
-            ...c.placedRoomItems,
-            {
-              instanceId: `rm-${Date.now()}`,
-              itemId,
-              x: 20 + offset,
-              y: 55 + (c.placedRoomItems.length % 2) * 14,
-            },
-          ],
-        };
+        nextPlaced = [
+          ...c.placedRoomItems,
+          {
+            instanceId: `rm-${Date.now()}`,
+            itemId,
+            x: 20 + offset,
+            y: 55 + (c.placedRoomItems.length % 2) * 14,
+          },
+        ];
+        return { ...c, placedRoomItems: nextPlaced };
       }),
     }));
+    syncRoomToServer(activeChild.roomConfig, nextPlaced);
   };
 
   const moveRoomItem = (instanceId: string, x: number, y: number) => {
+    let nextPlaced: PlacedRoomItem[] = [];
     setPersisted((prev) => ({
       ...prev,
       children: prev.children.map((c) => {
         if (c.id !== activeChild.id) return c;
-        return {
-          ...c,
-          placedRoomItems: c.placedRoomItems.map((p) =>
-            p.instanceId === instanceId ? { ...p, x, y } : p,
-          ),
-        };
+        nextPlaced = c.placedRoomItems.map((p) => (p.instanceId === instanceId ? { ...p, x, y } : p));
+        return { ...c, placedRoomItems: nextPlaced };
       }),
     }));
+    syncRoomToServer(activeChild.roomConfig, nextPlaced);
   };
 
   const removePlacedRoomItem = (instanceId: string) => {
     soundEngine.playPop();
+    let nextPlaced: PlacedRoomItem[] = [];
     setPersisted((prev) => ({
       ...prev,
       children: prev.children.map((c) => {
         if (c.id !== activeChild.id) return c;
+        nextPlaced = c.placedRoomItems.filter((p) => p.instanceId !== instanceId);
+        return { ...c, placedRoomItems: nextPlaced };
+      }),
+    }));
+    syncRoomToServer(activeChild.roomConfig, nextPlaced);
+  };
+
+  const saveRoomState: NonoLandContextValue['saveRoomState'] = async (roomConfig, placedRoomItems) => {
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) =>
+        c.id === activeChild.id
+          ? { ...c, roomConfig, placedRoomItems: placedRoomItems ?? c.placedRoomItems }
+          : c,
+      ),
+    }));
+    if (isServerChild(activeChild.id)) {
+      try {
+        const res = await fetch(`/api/children/${encodeURIComponent(activeChild.id)}/room`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': authSession.csrfToken!,
+          },
+          body: JSON.stringify({ roomConfig, placedRoomItems }),
+        });
+        if (res.ok) {
+          const d = await res.json();
+          if (d?.child) replaceServerChild(d.child);
+        }
+      } catch {
+        // local state kept
+      }
+    }
+  };
+
+  const saveAvatarConfig: NonoLandContextValue['saveAvatarConfig'] = async (avatarConfig) => {
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) => (c.id === activeChild.id ? { ...c, avatarConfig } : c)),
+    }));
+    if (isServerChild(activeChild.id)) {
+      try {
+        const res = await fetch(`/api/children/${encodeURIComponent(activeChild.id)}/avatar`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': authSession.csrfToken!,
+          },
+          body: JSON.stringify(avatarConfig),
+        });
+        if (res.ok) {
+          const d = await res.json();
+          if (d?.child) replaceServerChild(d.child);
+        }
+      } catch {
+        // local fallback
+      }
+    }
+  };
+
+  const interactWithPet: NonoLandContextValue['interactWithPet'] = async (input) => {
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) => {
+        if (c.id !== activeChild.id) return c;
+        const pet = { ...(c.petState || DEFAULT_PET_STATE) };
+        if (input.action === 'adopt') {
+          pet.adopted = true;
+          if (input.speciesId) pet.speciesId = input.speciesId;
+          if (input.presetNameId) pet.presetNameId = input.presetNameId;
+          pet.mood = 'happy';
+        } else if (input.action === 'rename' && input.presetNameId) {
+          pet.presetNameId = input.presetNameId;
+        } else if (input.action === 'feed') {
+          pet.adopted = true;
+          pet.careCount += 1;
+          pet.mood = 'cozy';
+        } else if (input.action === 'play') {
+          pet.adopted = true;
+          pet.playCount += 1;
+          pet.mood = 'playful';
+        } else if (input.action === 'decorate') {
+          pet.adopted = true;
+          if (input.accessoryId) {
+            pet.accessories = pet.accessories.includes(input.accessoryId)
+              ? pet.accessories.filter((a) => a !== input.accessoryId)
+              : [...pet.accessories, input.accessoryId];
+          }
+          if (input.habitatId) {
+            pet.habitatDecor = pet.habitatDecor.includes(input.habitatId)
+              ? pet.habitatDecor.filter((h) => h !== input.habitatId)
+              : [...pet.habitatDecor, input.habitatId];
+          }
+        }
+        return { ...c, petState: pet };
+      }),
+    }));
+    if (isServerChild(activeChild.id)) {
+      try {
+        const res = await fetch(`/api/children/${encodeURIComponent(activeChild.id)}/pet`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': authSession.csrfToken!,
+          },
+          body: JSON.stringify(input),
+        });
+        if (res.ok) {
+          const d = await res.json();
+          if (d?.child) replaceServerChild(d.child);
+        }
+      } catch {
+        // local state kept
+      }
+    }
+  };
+
+  const completeLabExperiment: NonoLandContextValue['completeLabExperiment'] = async (
+    experimentId,
+    starsReward = 4,
+  ) => {
+    const alreadyDone = (activeChild.completedLabIds || []).includes(experimentId);
+    const localAdded = alreadyDone ? 0 : starsReward;
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) => {
+        if (c.id !== activeChild.id) return c;
+        const doneSet = Array.from(new Set([...(c.completedLabIds || []), experimentId]));
+        const nextBadges = c.unlockedBadges.includes('lab-explorer')
+          ? c.unlockedBadges
+          : [...c.unlockedBadges, 'lab-explorer'];
         return {
           ...c,
-          placedRoomItems: c.placedRoomItems.filter((p) => p.instanceId !== instanceId),
+          stars: c.stars + localAdded,
+          completedLabIds: doneSet,
+          unlockedBadges: nextBadges,
+          totalLearningMinutes: c.totalLearningMinutes + 3,
+          activeDaysHistory: Array.from(new Set([...(c.activeDaysHistory || []), getTodayDayKey()])),
         };
       }),
     }));
+    if (isServerChild(activeChild.id)) {
+      try {
+        const res = await fetch(`/api/children/${encodeURIComponent(activeChild.id)}/lab/complete`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': authSession.csrfToken!,
+          },
+          body: JSON.stringify({
+            experimentId,
+            idempotencyKey: `${experimentId}_${getCurrentMonthKey()}_${Date.now()}`,
+          }),
+        });
+        if (res.ok) {
+          const d = (await res.json()) as { starsAdded?: number; child?: ChildProfile };
+          if (d.child) replaceServerChild(d.child);
+          return { starsAdded: d.starsAdded ?? localAdded };
+        }
+      } catch {
+        // local fallback
+      }
+    }
+    return { starsAdded: localAdded };
+  };
+
+  const createCustomStory: NonoLandContextValue['createCustomStory'] = async (input) => {
+    if (isServerChild(activeChild.id)) {
+      try {
+        const res = await fetch(`/api/children/${encodeURIComponent(activeChild.id)}/custom-stories`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': authSession.csrfToken!,
+          },
+          body: JSON.stringify(input),
+        });
+        if (res.ok) {
+          const d = await res.json();
+          if (d?.child) replaceServerChild(d.child);
+          return;
+        }
+      } catch {
+        // local fallback below
+      }
+    }
+    const created: CustomStory = {
+      ...input,
+      id: `cs-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) =>
+        c.id === activeChild.id
+          ? { ...c, customStories: [created, ...(c.customStories || [])].slice(0, 20) }
+          : c,
+      ),
+    }));
+  };
+
+  const deleteCustomStory: NonoLandContextValue['deleteCustomStory'] = async (storyId) => {
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) =>
+        c.id === activeChild.id
+          ? { ...c, customStories: (c.customStories || []).filter((s) => s.id !== storyId) }
+          : c,
+      ),
+    }));
+    if (isServerChild(activeChild.id)) {
+      void fetch(
+        `/api/children/${encodeURIComponent(activeChild.id)}/custom-stories/${encodeURIComponent(storyId)}`,
+        {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: { 'x-csrf-token': authSession.csrfToken! },
+        },
+      ).catch(() => {});
+    }
+  };
+
+  const saveCreativeProject: NonoLandContextValue['saveCreativeProject'] = async (input) => {
+    if (isServerChild(activeChild.id)) {
+      try {
+        const res = await fetch(`/api/children/${encodeURIComponent(activeChild.id)}/creative-projects`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': authSession.csrfToken!,
+          },
+          body: JSON.stringify(input),
+        });
+        if (res.ok) {
+          const d = await res.json();
+          if (d?.child) replaceServerChild(d.child);
+          return;
+        }
+      } catch {
+        // local fallback
+      }
+    }
+    const proj: CreativeProject = {
+      ...input,
+      id: `art-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) => {
+        if (c.id !== activeChild.id) return c;
+        const nextList = [proj, ...(c.creativeProjects || [])].slice(0, 24);
+        const nextDrawings = input.dataUrl
+          ? [{ id: proj.id, title: input.title, dataUrl: input.dataUrl, createdAt: proj.createdAt }, ...c.savedDrawings].slice(0, 12)
+          : c.savedDrawings;
+        return {
+          ...c,
+          stars: c.stars + (nextList.length <= 3 ? 2 : 0),
+          creativeProjects: nextList,
+          savedDrawings: nextDrawings,
+        };
+      }),
+    }));
+  };
+
+  const deleteCreativeProject: NonoLandContextValue['deleteCreativeProject'] = async (projectId) => {
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) =>
+        c.id === activeChild.id
+          ? {
+              ...c,
+              creativeProjects: (c.creativeProjects || []).filter((p) => p.id !== projectId),
+              savedDrawings: c.savedDrawings.filter((d) => d.id !== projectId),
+            }
+          : c,
+      ),
+    }));
+    if (isServerChild(activeChild.id)) {
+      void fetch(
+        `/api/children/${encodeURIComponent(activeChild.id)}/creative-projects/${encodeURIComponent(projectId)}`,
+        {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: { 'x-csrf-token': authSession.csrfToken! },
+        },
+      ).catch(() => {});
+    }
+  };
+
+  const redeemShopItem: NonoLandContextValue['redeemShopItem'] = async (itemId) => {
+    const item = REWARD_SHOP_ITEMS.find((i) => i.id === itemId);
+    if (!item) return { ok: false, error: 'Item not found' };
+    if ((activeChild.ownedShopItemIds || []).includes(itemId)) {
+      return { ok: false, error: language === 'ar' ? 'تم الحصول على هذا العنصر بالفعل!' : 'Already unlocked!' };
+    }
+    if (activeChild.stars < item.costStars) {
+      return {
+        ok: false,
+        error:
+          language === 'ar'
+            ? `تحتاج إلى ${item.costStars} نجوم لفتح هذا العنصر`
+            : `Need ${item.costStars} stars to unlock`,
+      };
+    }
+
+    if (isServerChild(activeChild.id)) {
+      try {
+        const res = await fetch(`/api/children/${encodeURIComponent(activeChild.id)}/shop/redeem`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': authSession.csrfToken!,
+          },
+          body: JSON.stringify({ itemId, idempotencyKey: `redeem_${itemId}_${Date.now()}` }),
+        });
+        const d = await res.json();
+        if (!res.ok) return { ok: false, error: d.error || 'Failed to redeem' };
+        if (d.child) replaceServerChild(d.child);
+        soundEngine.playCelebration();
+        return { ok: true };
+      } catch {
+        return { ok: false, error: 'Network error' };
+      }
+    }
+
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) => {
+        if (c.id !== activeChild.id) return c;
+        const owned = [...(c.ownedShopItemIds || []), item.id];
+        const unlockedRoomItems =
+          item.category === 'room' ? Array.from(new Set([...c.unlockedRoomItems, item.id])) : c.unlockedRoomItems;
+        const avatarConfig = { ...(c.avatarConfig || DEFAULT_AVATAR_CONFIG) };
+        if (item.category === 'avatar') {
+          avatarConfig.unlockedCosmetics = Array.from(new Set([...avatarConfig.unlockedCosmetics, item.id]));
+        }
+        const petState = { ...(c.petState || DEFAULT_PET_STATE) };
+        if (item.category === 'pet') {
+          petState.habitatDecor = Array.from(new Set([...petState.habitatDecor, item.id]));
+        }
+        return {
+          ...c,
+          stars: c.stars - item.costStars,
+          ownedShopItemIds: owned,
+          unlockedRoomItems,
+          avatarConfig,
+          petState,
+        };
+      }),
+    }));
+    soundEngine.playCelebration();
+    return { ok: true };
+  };
+
+  const claimDailyMission: NonoLandContextValue['claimDailyMission'] = async (missionId) => {
+    const today = getTodayDayKey();
+    if (
+      activeChild.claimedMissionsDate === today &&
+      (activeChild.claimedMissionIdsToday || []).includes(missionId)
+    ) {
+      return { ok: false, error: language === 'ar' ? 'تم استلام المكافأة اليوم بالفعل' : 'Already claimed today' };
+    }
+
+    if (isServerChild(activeChild.id)) {
+      try {
+        const res = await fetch(`/api/children/${encodeURIComponent(activeChild.id)}/missions/claim`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': authSession.csrfToken!,
+          },
+          body: JSON.stringify({ missionId }),
+        });
+        const d = await res.json();
+        if (!res.ok) return { ok: false, error: d.error || 'Mission prerequisite not met' };
+        if (d.child) replaceServerChild(d.child);
+        soundEngine.playCelebration();
+        return { ok: true, starsAdded: d.starsAdded || 3 };
+      } catch {
+        return { ok: false, error: 'Network error' };
+      }
+    }
+
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) => {
+        if (c.id !== activeChild.id) return c;
+        const baseClaimed = c.claimedMissionsDate === today ? c.claimedMissionIdsToday || [] : [];
+        return {
+          ...c,
+          stars: c.stars + 3,
+          claimedMissionsDate: today,
+          claimedMissionIdsToday: Array.from(new Set([...baseClaimed, missionId])),
+        };
+      }),
+    }));
+    soundEngine.playCelebration();
+    return { ok: true, starsAdded: 3 };
+  };
+
+  const saveLearningPlan: NonoLandContextValue['saveLearningPlan'] = async (input) => {
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) =>
+        c.id === activeChild.id
+          ? {
+              ...c,
+              parentSchedule: input.parentSchedule ?? c.parentSchedule ?? DEFAULT_PARENT_SCHEDULE,
+              nextMonthPlan: input.nextMonthPlan ?? c.nextMonthPlan ?? DEFAULT_NEXT_MONTH_PLAN,
+            }
+          : c,
+      ),
+    }));
+    if (isServerChild(activeChild.id)) {
+      try {
+        const res = await fetch(`/api/children/${encodeURIComponent(activeChild.id)}/learning-plan`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': authSession.csrfToken!,
+          },
+          body: JSON.stringify(input),
+        });
+        if (res.ok) {
+          const d = await res.json();
+          if (d?.child) replaceServerChild(d.child);
+        }
+      } catch {
+        // local state kept
+      }
+    }
   };
 
   const toggleDownloadWorld = (worldId: WorldId) => {
@@ -1244,6 +1778,17 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         placeRoomItem,
         moveRoomItem,
         removePlacedRoomItem,
+        saveRoomState,
+        saveAvatarConfig,
+        interactWithPet,
+        completeLabExperiment,
+        createCustomStory,
+        deleteCustomStory,
+        saveCreativeProject,
+        deleteCreativeProject,
+        redeemShopItem,
+        claimDailyMission,
+        saveLearningPlan,
         toggleDownloadWorld,
         isOnline,
         simulatedOffline: persisted.simulatedOffline,

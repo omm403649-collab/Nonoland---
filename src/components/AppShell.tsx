@@ -17,9 +17,11 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { useNonoLand } from '../context/NonoLandContext';
+import { DEFAULT_AVATAR_CONFIG } from '../data/worldCatalog';
 import { AGE_GROUP_META, formatNumber, t, UI_COPY } from '../i18n/translations';
 import { AppScreen } from '../types/nonoland';
 import { soundEngine } from '../utils/soundEngine';
+import { ChildAvatarPreview } from './CharacterCast';
 
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const {
@@ -85,7 +87,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             {navItems.map((item) => {
               const isActive =
                 screen === item.id ||
-                (item.id === 'map' && (screen === 'world-detail' || screen === 'game' || screen === 'game-results'));
+                (item.id === 'map' && (screen === 'world-detail' || screen === 'game' || screen === 'game-results')) ||
+                (item.id === 'fun-zone' && (screen === 'brain-games' || screen === 'creative-studio')) ||
+                (item.id === 'my-room' && (screen === 'my-avatar' || screen === 'my-pet')) ||
+                (item.id === 'achievements' && screen === 'reward-shop') ||
+                (item.id === 'stories' && screen === 'story-reader');
               return (
                 <button
                   key={item.id}
@@ -116,7 +122,26 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               </span>
             )}
 
-            {/* Child quick-switcher for testing all 4 age profiles effortlessly */}
+            {/* Avatar Quick Button + Child Switcher */}
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playPop();
+                navigate('my-avatar');
+              }}
+              title={language === 'ar' ? 'تخصيص صورتي الرمزية' : 'Customize My Avatar'}
+              aria-label={language === 'ar' ? 'صورتي الرمزية' : 'My Avatar'}
+              className="w-10 h-10 rounded-xl bg-white border border-[#27345C]/15 flex items-center justify-center overflow-hidden hover:border-[#8054D9] cursor-pointer shrink-0"
+            >
+              <div className="scale-75 origin-center pointer-events-none">
+                <ChildAvatarPreview
+                  avatar={activeChild.avatarConfig || DEFAULT_AVATAR_CONFIG}
+                  size="sm"
+                  animated={false}
+                />
+              </div>
+            </button>
+
             <div className="relative">
               <select
                 aria-label={language === 'ar' ? 'اختر ملف الطفل' : 'Switch child profile'}

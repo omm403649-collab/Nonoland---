@@ -36,13 +36,17 @@ export type GameMechanic =
   | 'music-rhythm'
   | 'sort-classify';
 
+export type OfficialCharacterId = 'nono' | 'lolo' | 'leo' | 'bobo' | 'ellie' | 'titi';
+
 export type NonoMood =
   | 'idle'
+  | 'walking'
   | 'waving'
   | 'jumping'
   | 'thinking'
   | 'excited'
   | 'encouraging'
+  | 'laughing'
   | 'celebrating'
   | 'sleeping'
   | 'listening'
@@ -70,6 +74,12 @@ export type AppScreen =
   | 'stories'
   | 'story-reader'
   | 'my-room'
+  | 'my-avatar'
+  | 'my-pet'
+  | 'brain-games'
+  | 'creative-studio'
+  | 'reward-shop'
+  | 'monthly-report'
   | 'achievements'
   | 'parent-dashboard'
   | 'teacher-dashboard'
@@ -519,6 +529,23 @@ export interface ChildProfile {
   completedMissionsToday: string[];
   totalLearningMinutes: number;
   downloadedWorldIds: WorldId[];
+  avatarConfig?: ChildAvatarConfig;
+  roomConfig?: RoomConfig;
+  petState?: PetState;
+  completedLabIds?: string[];
+  labHistory?: LabCompletionRecord[];
+  customStories?: CustomStory[];
+  creativeProjects?: CreativeProject[];
+  ownedShopItemIds?: string[];
+  rewardTransactions?: RewardTransaction[];
+  claimedMissionsDate?: string;
+  claimedMissionIdsToday?: string[];
+  learningStreakDays?: number;
+  activeDaysHistory?: string[];
+  monthlySnapshots?: Record<string, MonthlySnapshot>;
+  parentSchedule?: ParentSchedulePreferences;
+  nextMonthPlan?: LearningPlanGoal[];
+  activityTimeline?: ActivityTimelineEvent[];
 }
 
 export interface LearningWorld {
@@ -596,19 +623,34 @@ export interface StoryScene {
   illustrationEmoji: string;
   bgMood: string;
   nonoLine: LocalizedText;
+  castCharacters?: OfficialCharacterId[];
+  sceneKey?: string;
+  predictionPrompt?: LocalizedText;
   choices?: StoryChoice[];
   isEnding?: boolean;
   rewardStars?: number;
 }
 
+export type StoryCategory =
+  | 'interactive'
+  | 'bedtime'
+  | 'originals'
+  | 'prediction'
+  | 'values';
+
 export interface Story {
   id: string;
   title: LocalizedText;
   summary: LocalizedText;
+  category?: StoryCategory;
   ageEligibility: AgeGroupId[];
   worldId: WorldId;
   coverEmoji: string;
   accentColor: string;
+  featuredCharacters?: OfficialCharacterId[];
+  moralValue?: LocalizedText;
+  isBedtime?: boolean;
+  audioStatus?: 'speech_synthesis_fallback' | 'verified_audio';
   isPremium?: boolean;
   scenes: Record<string, StoryScene>;
   startSceneId: string;
@@ -1123,4 +1165,227 @@ export interface FeatureFlags {
   newGameModulesEnabled: boolean;
   requireTeacherContentApproval: boolean;
 }
+
+// =========================================================================
+// IMMERSIVE WORLDS: AVATAR, ROOM + GARDEN, PET, LAB, STORIES, CREATIVE, SHOP & REPORTS
+// =========================================================================
+
+export interface ChildAvatarConfig {
+  hairStyle: 'curly' | 'bob' | 'spiky' | 'braids' | 'cap-hair' | 'classic';
+  hairColor: string;
+  skinTone: string;
+  outfit: 'explorer' | 'astronaut' | 'artist' | 'scientist' | 'royal' | 'sporty';
+  outfitColor: string;
+  accessory: 'none' | 'glasses' | 'star-pin' | 'headband' | 'cape' | 'backpack';
+  expression: 'happy' | 'curious' | 'proud' | 'silly';
+  unlockedCosmetics: string[];
+}
+
+export interface GardenPlant {
+  id: string;
+  slotIndex: number;
+  speciesId: 'sunflower' | 'lavender' | 'strawberry' | 'star-cactus';
+  stage: 0 | 1 | 2 | 3; // 0: seed, 1: sprout, 2: bud, 3: bloom
+  waterCount: number;
+  lastWateredAt?: string;
+}
+
+export interface RoomConfig {
+  theme: 'sunny' | 'garden' | 'starry' | 'cozy-pink' | 'space';
+  wallColor: string;
+  wallpaper: 'solid' | 'stars' | 'clouds' | 'stripes';
+  floorStyle: 'wood' | 'pastel-tile' | 'star-carpet';
+  curtains: 'mint' | 'violet' | 'gold' | 'none';
+  rug: 'cloud' | 'rainbow' | 'star' | 'none';
+  lighting: 'daylight' | 'warm-lamp' | 'nightlight';
+  gardenPlants: GardenPlant[];
+  toyTapsCount?: number;
+}
+
+export type PetSpeciesId =
+  | 'star-puppy'
+  | 'cloud-kitten'
+  | 'honey-bunny'
+  | 'cosmic-dragon'
+  | 'garden-turtle';
+
+export interface PetState {
+  adopted: boolean;
+  speciesId: PetSpeciesId;
+  presetNameId: string;
+  mood: 'happy' | 'playful' | 'cozy';
+  accessories: string[];
+  habitatDecor: string[];
+  careCount: number;
+  playCount: number;
+  lastInteractionAt?: string;
+}
+
+export type CreativeProjectKind =
+  | 'drawing'
+  | 'coloring'
+  | 'shapes'
+  | 'stickers'
+  | 'character-decor'
+  | 'picture-story';
+
+export interface CreativeProject {
+  id: string;
+  kind: CreativeProjectKind;
+  title: string;
+  dataUrl?: string;
+  sceneJson?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface CustomStoryPage {
+  id: string;
+  title: string;
+  text: string;
+  emojiScene: string;
+  characterId: OfficialCharacterId;
+  backdrop: string;
+}
+
+export interface CustomStory {
+  id: string;
+  title: string;
+  characterId: OfficialCharacterId;
+  setting: string;
+  pages: CustomStoryPage[];
+  createdAt: string;
+}
+
+export interface RewardShopItem {
+  id: string;
+  category: 'avatar' | 'pet' | 'room' | 'island' | 'character';
+  name: LocalizedText;
+  description: LocalizedText;
+  emoji: string;
+  costStars: number;
+  badgeUnlockReq?: string;
+}
+
+export interface RewardTransaction {
+  id: string;
+  idempotencyKey: string;
+  itemId: string;
+  category: string;
+  starsSpent: number;
+  redeemedAt: string;
+}
+
+export interface LabCompletionRecord {
+  experimentId: string;
+  completedAt: string;
+  attempts: number;
+  starsAwarded: number;
+  ageGroup: AgeGroupId;
+}
+
+export type ReportSubjectKey =
+  | 'arabic'
+  | 'english'
+  | 'math'
+  | 'logic'
+  | 'creative'
+  | 'general';
+
+export interface MonthlySubjectSnapshot {
+  subjectKey: ReportSubjectKey;
+  completedCount: number;
+  accuracyPct: number | null;
+  levelLabel: string;
+}
+
+export interface MonthlySnapshot {
+  monthKey: string; // YYYY-MM
+  recordedAt: string;
+  learningDays: string[];
+  totalMinutes: number;
+  completedLessons: number;
+  completedActivities: number;
+  completedLabIds: string[];
+  completedStoryIds: string[];
+  stars: number;
+  subjectBaseline: Record<ReportSubjectKey, MonthlySubjectSnapshot>;
+}
+
+export interface ParentSchedulePreferences {
+  preferredDays: string[];
+  dailyGoalMinutes: number;
+  reminderTime: string;
+  weeklySummaryEmail: boolean;
+  achievementAlerts: boolean;
+  focusAreas: ReportSubjectKey[];
+}
+
+export interface LearningPlanGoal {
+  id: string;
+  subject: ReportSubjectKey;
+  title: LocalizedText;
+  targetCount: number;
+  focusNote: LocalizedText;
+  enabled: boolean;
+}
+
+export interface ActivityTimelineEvent {
+  id: string;
+  timestamp: string;
+  category: 'lesson' | 'game' | 'lab' | 'story' | 'creative' | 'pet' | 'reward' | 'exam';
+  title: LocalizedText;
+  detail: LocalizedText;
+  starsEarned?: number;
+}
+
+export interface MonthlyReportSubjectSummary {
+  subjectKey: ReportSubjectKey;
+  title: LocalizedText;
+  completedLessonsAndActivities: number;
+  demonstratedCount: number;
+  practicingCount: number;
+  needsRevisionCount: number;
+  baselineAccuracyPct: number | null;
+  currentAccuracyPct: number | null;
+  improvementDeltaPct: number | null;
+  baselineAvailable: boolean;
+  currentLevelLabel: LocalizedText;
+  note: LocalizedText;
+}
+
+export interface MonthlyReportData {
+  monthKey: string; // YYYY-MM
+  childId: string;
+  childName: string;
+  ageGroup: AgeGroupId;
+  learningDaysCount: number;
+  learningStreakDays: number;
+  totalLearningMinutes: number;
+  completedLessonsCount: number;
+  completedActivitiesCount: number;
+  completedLabCount: number;
+  completedStoriesCount: number;
+  assessmentsCount: number;
+  starsEarnedTotal: number;
+  unlockedBadgesCount: number;
+  certificatesCount: number;
+  baselineAvailable: boolean;
+  subjects: MonthlySubjectSnapshot[] | MonthlyReportSubjectSummary[];
+  subjectBreakdown: MonthlyReportSubjectSummary[];
+  achievementsEarned: Array<{ id: string; title: LocalizedText; emoji: string }>;
+  strengths: LocalizedText[];
+  areasNeedingAttention: LocalizedText[];
+  recommendations: LocalizedText[];
+  nextMonthPlan: LearningPlanGoal[];
+  availableMonths: string[];
+  comparison?: {
+    compareMonthKey: string;
+    learningDaysDelta: number;
+    lessonsDelta: number;
+    activitiesDelta: number;
+    minutesDelta: number;
+    baselineAvailable: boolean;
+  } | null;
+}
+
 

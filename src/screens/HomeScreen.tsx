@@ -3,35 +3,43 @@ import { motion } from 'motion/react';
 import {
   Award,
   BookOpen,
+  Brain,
+  Brush,
   ClipboardCheck,
   Compass,
   FileText,
+  Flame,
   FlaskConical,
   Gamepad2,
   GraduationCap,
   HeartHandshake,
   Palette,
+  PawPrint,
   Play,
+  ShoppingBag,
   Sparkles,
   Star,
   Volume2,
 } from 'lucide-react';
 import storyForestImg from '../assets/images/story_enchanted_forest_1794739849090.jpg';
+import { ChildAvatarPreview } from '../components/CharacterCast';
 import { NonoCharacter } from '../components/NonoCharacter';
 import { useNonoLand } from '../context/NonoLandContext';
 import { GAME_ACTIVITIES, getActivityById } from '../data/activities';
-import { DAILY_MISSIONS } from '../data/rewardsAndRoom';
+import { DEFAULT_AVATAR_CONFIG } from '../data/worldCatalog';
 import { getWorldById, LEARNING_WORLDS } from '../data/worlds';
 import { getAdaptiveRecommendation } from '../engine/adaptiveEngine';
+import { calculateStreakDays, getTodayDayKey } from '../engine/monthlyReportEngine';
 import { AGE_GROUP_META, formatNumber, t, UI_COPY } from '../i18n/translations';
 import { NonoMood } from '../types/nonoland';
 import { soundEngine } from '../utils/soundEngine';
 
 export const HomeScreen: React.FC = () => {
-  const { activeChild, authSession, language, navigate } = useNonoLand();
+  const { activeChild, authSession, language, navigate, claimDailyMission } = useNonoLand();
   const [nonoMood, setNonoMood] = useState<NonoMood>('waving');
   const [hwCounts, setHwCounts] = useState<{ active: number; completed: number }>({ active: 0, completed: 0 });
   const [exCounts, setExCounts] = useState<{ active: number; completed: number }>({ active: 0, completed: 0 });
+  const [missionFeedback, setMissionFeedback] = useState<string>('');
 
   useEffect(() => {
     if (!authSession.authenticated || (authSession.user?.role !== 'student' && authSession.user?.role !== 'parent')) {
@@ -75,6 +83,73 @@ export const HomeScreen: React.FC = () => {
   const l2Done = Object.values(activeChild.level2Progress || {}).filter((p) => p.status === 'demonstrated').length;
   const totalLessonsDone = l1Done + l2Done;
   const journeyPct = Math.min(100, Math.round((totalLessonsDone / 127) * 100));
+  const streakDays = activeChild.learningStreakDays ?? calculateStreakDays(activeChild.activeDaysHistory);
+  const revisionCount =
+    Object.values(activeChild.level1Progress || {}).filter((p) => p.status === 'needs-revision').length +
+    Object.values(activeChild.level2Progress || {}).filter((p) => p.status === 'needs-revision').length;
+
+  // Verified Daily Missions matching backend prerequisites
+  const todayKey = getTodayDayKey();
+  const claimedToday =
+    activeChild.claimedMissionsDate === todayKey ? activeChild.claimedMissionIdsToday || [] : [];
+
+  const hasArabic =
+    Object.values(activeChild.level1Progress || {}).some((p) => p.subject === 'arabic') ||
+    Object.values(activeChild.level2Progress || {}).some((p) => p.subject === 'arabic') ||
+    activeChild.attempts.some((a) => a.worldId === 'arabic-letters');
+  const hasMath =
+    Object.values(activeChild.level1Progress || {}).some((p) => p.subject === 'numbers') ||
+    Object.values(activeChild.level2Progress || {}).some((p) => p.subject === 'math') ||
+    activeChild.attempts.some((a) => a.worldId === 'numbers-kingdom');
+  const hasMemory = activeChild.attempts.some(
+    (a) => a.skillId === 'memory-focus' || a.worldId === 'intelligence-castle',
+  );
+  const hasStory = (activeChild.completedStoryIds || []).length > 0;
+  const hasCreativeOrLab =
+    (activeChild.completedLabIds || []).length > 0 || (activeChild.creativeProjects || []).length > 0;
+
+  const verifiedMissions = [
+    {
+      id: 'dm-arabic',
+      icon: '🔤',
+      title: { ar: 'مهمة الحروف العربية', en: 'Arabic Letters Quest' },
+      desc: { ar: 'استكشف درساً في العربية ثم اجمع النجوم', en: 'Explore one Arabic activity or lesson' },
+      ready: hasArabic,
+      targetScreen: 'academy' as const,
+    },
+    {
+      id: 'dm-memory',
+      icon: '🧠',
+      title: { ar: 'تحدي الذاكرة والتركيز', en: 'Memory & Focus Game' },
+      desc: { ar: 'العب لعبة ذاكرة في ألعاب الذكاء', en: 'Play a quick Brain Games challenge' },
+      ready: hasMemory,
+      targetScreen: 'brain-games' as const,
+    },
+    {
+      id: 'dm-story',
+      icon: '📖',
+      title: { ar: 'قصة قبل المنام أو المغامرة', en: 'Listen to a Story' },
+      desc: { ar: 'أكمل قصة تفاعلية في عالم القصص', en: 'Finish a story in Story World' },
+      ready: hasStory,
+      targetScreen: 'stories' as const,
+    },
+    {
+      id: 'dm-math',
+      icon: '🔢',
+      title: { ar: 'لغز الأرقام الذكي', en: 'Numbers & Math Mission' },
+      desc: { ar: 'مارس نشاطاً في مملكة الأرقام', en: 'Practice Numbers Kingdom or Academy Math' },
+      ready: hasMath,
+      targetScreen: 'academy' as const,
+    },
+    {
+      id: 'dm-creative',
+      icon: '🔬',
+      title: { ar: 'تجربة مختبر أو لوحة إبداعية', en: 'Lab Experiment or Art' },
+      desc: { ar: 'أجرِ تجربة في مختبر نونو أو ارسم لوحة', en: 'Run a science sim or save artwork' },
+      ready: hasCreativeOrLab,
+      targetScreen: 'discovery-lab' as const,
+    },
+  ];
 
   // Personalized Nono greeting remembering favorite world & recent adventure
   const favWorld = activeChild.favoriteWorldId ? getWorldById(activeChild.favoriteWorldId) : null;
@@ -270,6 +345,152 @@ export const HomeScreen: React.FC = () => {
             </p>
           </div>
         </button>
+      </section>
+
+      {/* SMART LEARNING PATH: Transparent Adaptive Reasoning */}
+      <section className="nono-card rounded-3xl p-5 bg-gradient-to-r from-[#FFF8E9] via-white to-[#E5F6FF] border-2 border-[#8054D9]/18 flex flex-wrap items-center justify-between gap-4">
+        <div className="space-y-1 max-w-2xl">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-extrabold text-[#8054D9]">
+            <Sparkles className="w-4 h-4" />
+            <span>{language === 'ar' ? 'مسار التعلم الذكي المخصص لك' : 'Your Smart Learning Path'}</span>
+            {streakDays > 0 && (
+              <span className="inline-flex items-center gap-1 text-[#D97706]">
+                <Flame className="w-3.5 h-3.5" />
+                {formatNumber(streakDays, language)} {language === 'ar' ? 'أيام متواصلة' : 'day streak'}
+              </span>
+            )}
+          </div>
+          <p className="font-extrabold text-base sm:text-lg text-[#27345C]">
+            {revisionCount > 0
+              ? language === 'ar'
+                ? `ننصح بمراجعة لطيفة لـ ${formatNumber(revisionCount, language)} مفهوم ثم تجربة نشاط ${t(recommendation.activity.title, language)}.`
+                : `Gentle review ready for ${revisionCount} concept(s), followed by ${recommendation.activity.title.en}.`
+              : language === 'ar'
+                ? `الخطوة المناسبة الآن: ${t(recommendation.activity.title, language)} (${t(recommendation.reason, language)})`
+                : `Recommended next: ${recommendation.activity.title.en} — ${recommendation.reason.en}`}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              navigate('game', {
+                worldId: recommendation.worldId,
+                activityId: recommendation.activity.id,
+              })
+            }
+            className="nono-btn-tactile min-h-[44px] px-5 rounded-xl bg-[#8054D9] text-white font-extrabold text-sm cursor-pointer"
+          >
+            {language === 'ar' ? 'ابدأ الخطوة المقترحة' : 'Start Suggested Step'}
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('brain-games')}
+            className="min-h-[44px] px-4 rounded-xl bg-white border border-[#27345C]/15 text-[#27345C] font-extrabold text-xs cursor-pointer hover:border-[#39BDF2]"
+          >
+            {language === 'ar' ? 'ألعاب الذكاء' : 'Brain Games'}
+          </button>
+        </div>
+      </section>
+
+      {/* INTERACTIVE WORLD EXPANSION: AVATAR, PET, BRAIN GAMES, STUDIO & REWARD SHOP */}
+      <section className="space-y-3">
+        <h2 className="text-lg sm:text-xl font-extrabold text-[#27345C]">
+          {language === 'ar' ? 'عالمي التفاعلي وإبداعاتي' : 'Interactive World & Creations'}
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <button
+            type="button"
+            onClick={() => navigate('my-avatar')}
+            className="nono-card rounded-3xl p-4 text-start bg-gradient-to-br from-[#F3E8FF] to-white border-2 border-[#8054D9]/20 hover:border-[#8054D9] cursor-pointer flex items-center gap-3"
+          >
+            <div className="w-12 h-12 shrink-0 flex items-center justify-center">
+              <div className="scale-75 origin-center">
+                <ChildAvatarPreview avatar={activeChild.avatarConfig || DEFAULT_AVATAR_CONFIG} size="sm" animated={false} />
+              </div>
+            </div>
+            <div>
+              <p className="font-extrabold text-sm text-[#27345C]">
+                {language === 'ar' ? 'صورتي الرمزية' : 'My Avatar'}
+              </p>
+              <p className="text-[11px] text-[#27345C]/70">
+                {language === 'ar' ? 'صمّم شخصيتك' : 'Customize look'}
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('my-pet')}
+            className="nono-card rounded-3xl p-4 text-start bg-gradient-to-br from-[#E2F9EC] to-white border-2 border-[#55D98B]/30 hover:border-[#55D98B] cursor-pointer flex items-center gap-3"
+          >
+            <span className="w-11 h-11 rounded-2xl bg-[#55D98B]/20 text-[#166534] flex items-center justify-center shrink-0">
+              <PawPrint className="w-6 h-6" />
+            </span>
+            <div>
+              <p className="font-extrabold text-sm text-[#27345C]">
+                {language === 'ar' ? 'صديقي الأليف' : 'My Pet'}
+              </p>
+              <p className="text-[11px] text-[#27345C]/70">
+                {language === 'ar' ? 'أطعمه والعب معه' : 'Care & play'}
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('brain-games')}
+            className="nono-card rounded-3xl p-4 text-start bg-gradient-to-br from-[#E5F6FF] to-white border-2 border-[#39BDF2]/30 hover:border-[#39BDF2] cursor-pointer flex items-center gap-3"
+          >
+            <span className="w-11 h-11 rounded-2xl bg-[#39BDF2]/20 text-[#0369A1] flex items-center justify-center shrink-0">
+              <Brain className="w-6 h-6" />
+            </span>
+            <div>
+              <p className="font-extrabold text-sm text-[#27345C]">
+                {language === 'ar' ? 'ألعاب الذكاء (٩)' : 'Brain Games (9)'}
+              </p>
+              <p className="text-[11px] text-[#27345C]/70">
+                {language === 'ar' ? 'ذاكرة وألغاز ومنطق' : 'Memory & puzzles'}
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('creative-studio')}
+            className="nono-card rounded-3xl p-4 text-start bg-gradient-to-br from-[#FFE6F2] to-white border-2 border-[#FF78B7]/30 hover:border-[#FF78B7] cursor-pointer flex items-center gap-3"
+          >
+            <span className="w-11 h-11 rounded-2xl bg-[#FF78B7]/20 text-[#BE185D] flex items-center justify-center shrink-0">
+              <Brush className="w-6 h-6" />
+            </span>
+            <div>
+              <p className="font-extrabold text-sm text-[#27345C]">
+                {language === 'ar' ? 'استوديو الإبداع' : 'Creative Studio'}
+              </p>
+              <p className="text-[11px] text-[#27345C]/70">
+                {language === 'ar' ? 'رسم وتلوين وقصص' : 'Draw & create'}
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('reward-shop')}
+            className="nono-card rounded-3xl p-4 text-start bg-gradient-to-br from-[#FFF3D1] to-white border-2 border-[#FFD84D]/60 hover:border-[#FF9360] cursor-pointer flex items-center gap-3 col-span-2 sm:col-span-1"
+          >
+            <span className="w-11 h-11 rounded-2xl bg-[#FFD84D]/40 text-[#92400E] flex items-center justify-center shrink-0">
+              <ShoppingBag className="w-6 h-6" />
+            </span>
+            <div>
+              <p className="font-extrabold text-sm text-[#27345C]">
+                {language === 'ar' ? 'متجر الجوائز' : 'Reward Shop'}
+              </p>
+              <p className="text-[11px] text-[#27345C]/70 tabular-nums">
+                ⭐ {formatNumber(activeChild.stars, language)} {language === 'ar' ? 'متاح' : 'stars'}
+              </p>
+            </div>
+          </button>
+        </div>
       </section>
 
       {/* FEATURED HUBS: LEARNING ACADEMY, OFFICIAL EXAMS & FUN ZONE */}
@@ -515,7 +736,7 @@ export const HomeScreen: React.FC = () => {
 
       {/* GENTLE DAILY DISCOVERIES + QUICK DESTINATIONS */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Daily Discovery Missions (No punishment / No countdown!) */}
+        {/* Daily Discovery Missions (Verified Server Prerequisite Claims) */}
         <div className="lg:col-span-6 nono-card rounded-3xl p-6 space-y-4">
           <div className="flex items-start justify-between gap-2">
             <div>
@@ -529,36 +750,67 @@ export const HomeScreen: React.FC = () => {
             <HeartHandshake className="w-6 h-6 text-[#55D98B] shrink-0" />
           </div>
 
+          {missionFeedback && (
+            <p className="text-xs font-extrabold px-3 py-2 rounded-xl bg-[#E2F9EC] text-[#14532D]">
+              {missionFeedback}
+            </p>
+          )}
+
           <div className="space-y-2.5">
-            {DAILY_MISSIONS.map((mission) => {
-              const done = activeChild.completedActivityIds.includes(mission.targetActivityId);
+            {verifiedMissions.map((m) => {
+              const claimed = claimedToday.includes(m.id);
               return (
-                <button
-                  key={mission.id}
-                  type="button"
-                  onClick={() =>
-                    navigate('game', {
-                      worldId: mission.targetWorldId,
-                      activityId: mission.targetActivityId,
-                    })
-                  }
-                  className="w-full p-3.5 rounded-2xl bg-[#FFF8E9] hover:bg-[#FFD84D]/25 border border-[#27345C]/10 flex items-center justify-between gap-3 text-start transition-colors cursor-pointer"
+                <div
+                  key={m.id}
+                  className="p-3 rounded-2xl bg-[#FFF8E9] border border-[#27345C]/10 flex items-center justify-between gap-3"
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">{mission.icon}</span>
+                  <button
+                    type="button"
+                    onClick={() => navigate(m.targetScreen)}
+                    className="flex items-center gap-3 text-start flex-1 cursor-pointer min-h-[44px]"
+                  >
+                    <span className="text-2xl">{m.icon}</span>
                     <div>
-                      <p className="font-bold text-sm text-[#27345C]">{t(mission.title, language)}</p>
-                      <p className="text-xs text-[#27345C]/65">{t(mission.description, language)}</p>
+                      <p className="font-bold text-sm text-[#27345C]">{t(m.title, language)}</p>
+                      <p className="text-xs text-[#27345C]/65">{t(m.desc, language)}</p>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1 text-xs font-extrabold shrink-0">
-                    <Star className="w-4 h-4 fill-[#FFD84D] text-[#FF9360]" />
-                    <span className="tabular-nums">+{mission.rewardStars}</span>
-                    {done && (
-                      <span className="ms-1 text-[#55D98B]">✓</span>
-                    )}
-                  </div>
-                </button>
+                  </button>
+
+                  {claimed ? (
+                    <span className="px-3 py-1.5 rounded-xl bg-[#55D98B]/25 text-[#14532D] text-xs font-extrabold shrink-0">
+                      {language === 'ar' ? 'مكتملة ✓' : 'Claimed ✓'}
+                    </span>
+                  ) : m.ready ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const res = await claimDailyMission(m.id);
+                        if (res.ok) {
+                          soundEngine.playCelebration();
+                          setMissionFeedback(
+                            language === 'ar'
+                              ? `أحسنت! أُضيفت +${res.starsAdded || 3} نجوم لمهمة اليوم ⭐`
+                              : `Yay! Added +${res.starsAdded || 3} stars for today's mission ⭐`,
+                          );
+                        } else if (res.error) {
+                          setMissionFeedback(res.error);
+                        }
+                      }}
+                      className="nono-btn-tactile min-h-[40px] px-3 rounded-xl bg-[#FFD84D] text-[#27345C] text-xs font-extrabold flex items-center gap-1 shrink-0 cursor-pointer"
+                    >
+                      <Star className="w-3.5 h-3.5 fill-[#27345C]" />
+                      <span>{language === 'ar' ? 'استلم +٣' : 'Claim +3'}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => navigate(m.targetScreen)}
+                      className="min-h-[40px] px-3 rounded-xl bg-white border border-[#27345C]/15 text-[#8054D9] text-xs font-extrabold shrink-0 cursor-pointer"
+                    >
+                      {language === 'ar' ? 'ابدأ' : 'Play'}
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>

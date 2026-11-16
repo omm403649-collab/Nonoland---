@@ -43,6 +43,14 @@ import {
 import type { AuthenticatedRequest, CheckoutSession, ServerDb, StoredChildRecord } from './server/dbTypes';
 import { registerGovernanceAndHomeworkRoutes } from './server/governanceAndHomeworkRoutes';
 import { registerTeacherAndLevel2Routes } from './server/teacherRoutes';
+import { registerWorldExperienceRoutes } from './server/worldExperienceRoutes';
+import {
+  DEFAULT_AVATAR_CONFIG,
+  DEFAULT_NEXT_MONTH_PLAN,
+  DEFAULT_PARENT_SCHEDULE,
+  DEFAULT_PET_STATE,
+  DEFAULT_ROOM_CONFIG,
+} from './src/data/worldCatalog';
 import type {
   AgeGroupId,
   Certificate,
@@ -927,6 +935,19 @@ async function startServer() {
       downloadedWorldIds: ['arabic-letters', 'colors-shapes'],
       level1Progress: {},
       level2Progress: {},
+      avatarConfig: { ...DEFAULT_AVATAR_CONFIG },
+      roomConfig: { ...DEFAULT_ROOM_CONFIG },
+      petState: { ...DEFAULT_PET_STATE },
+      completedLabIds: [],
+      labHistory: [],
+      customStories: [],
+      creativeProjects: [],
+      ownedShopItemIds: [],
+      rewardTransactions: [],
+      parentSchedule: { ...DEFAULT_PARENT_SCHEDULE },
+      nextMonthPlan: DEFAULT_NEXT_MONTH_PLAN,
+      activeDaysHistory: [],
+      activityTimeline: [],
     };
 
     db.children[childId] = child;
@@ -1777,6 +1798,14 @@ async function startServer() {
     saveDb,
     requireAuth,
     requireAdminPermission,
+  });
+
+  registerWorldExperienceRoutes({
+    app,
+    getDb: () => db,
+    saveDb,
+    requireAuth,
+    assertChildAccess,
   });
 
   if (!IS_PROD) {

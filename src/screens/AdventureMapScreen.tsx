@@ -104,6 +104,33 @@ export const AdventureMapScreen: React.FC = () => {
               <div className="absolute top-1/4 start-1/2 text-lg animate-twinkle">✨</div>
             </div>
 
+            {/* Connected Adventure Trail SVG linking islands sequentially */}
+            <svg
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              className="pointer-events-none absolute inset-0 w-full h-full z-[5]"
+              aria-hidden="true"
+            >
+              {LEARNING_WORLDS.slice(0, -1).map((w, idx) => {
+                const next = LEARNING_WORLDS[idx + 1];
+                const wp = progressByWorld.get(next.id);
+                const unlocked = !wp || wp.status !== 'upcoming';
+                return (
+                  <line
+                    key={`${w.id}-${next.id}`}
+                    x1={w.mapPosition.x}
+                    y1={w.mapPosition.y}
+                    x2={next.mapPosition.x}
+                    y2={next.mapPosition.y}
+                    stroke={unlocked ? '#FFD84D' : 'rgba(255,255,255,0.55)'}
+                    strokeWidth="0.65"
+                    strokeDasharray="1.8 1.4"
+                    strokeLinecap="round"
+                  />
+                );
+              })}
+            </svg>
+
             {LEARNING_WORLDS.map((world, idx) => {
               const wp = progressByWorld.get(world.id);
               const status = wp?.status || 'available';
@@ -157,6 +184,31 @@ export const AdventureMapScreen: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Connected Interactive Destinations Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { screen: 'brain-games' as const, emoji: '🧠', ar: 'ألعاب الذكاء والتركيز', en: 'Brain Games (9)', bg: 'from-[#F3E8FF] to-white' },
+          { screen: 'creative-studio' as const, emoji: '🎨', ar: 'استوديو الإبداع', en: 'Creative Studio', bg: 'from-[#FFE6F2] to-white' },
+          { screen: 'my-pet' as const, emoji: '🐾', ar: 'صديقي الأليف', en: 'My Virtual Pet', bg: 'from-[#E2F9EC] to-white' },
+          { screen: 'reward-shop' as const, emoji: '🛍️', ar: 'متجر الجوائز بالنجوم', en: 'Star Reward Shop', bg: 'from-[#FFF3D1] to-white' },
+        ].map((dest) => (
+          <button
+            key={dest.screen}
+            type="button"
+            onClick={() => {
+              soundEngine.playPop();
+              navigate(dest.screen);
+            }}
+            className={`nono-card rounded-2xl p-3.5 bg-gradient-to-br ${dest.bg} flex items-center gap-3 text-start hover:border-[#8054D9] transition-colors cursor-pointer min-h-[56px]`}
+          >
+            <span className="text-2xl shrink-0">{dest.emoji}</span>
+            <span className="text-xs sm:text-sm font-extrabold text-[#27345C]">
+              {language === 'ar' ? dest.ar : dest.en}
+            </span>
+          </button>
+        ))}
+      </div>
 
       {/* Accessible 10-World Grid / List Directory with Color + Icon + Label States */}
       <div className={viewMode === 'list' ? 'space-y-3' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4'}>

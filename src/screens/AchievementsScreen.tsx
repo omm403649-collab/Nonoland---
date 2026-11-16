@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Award, Lock, Star } from 'lucide-react';
+import { Award, Lock, ShoppingBag, Star } from 'lucide-react';
 import { CertificateModal } from '../components/CertificateModal';
 import { useNonoLand } from '../context/NonoLandContext';
 import { CHARACTER_COMPANIONS, REWARD_BADGES } from '../data/rewardsAndRoom';
@@ -28,27 +28,41 @@ export const AchievementsScreen: React.FC = () => {
           </p>
         </div>
 
-        {/* Segmented Filter Tabs */}
-        <div className="flex items-center gap-1 p-1 bg-white rounded-2xl border border-[#27345C]/12">
-          {[
-            { id: 'badges' as const, ar: 'الأوسمة والجوائز', en: 'Badges' },
-            { id: 'certificates' as const, ar: 'الشهادات', en: 'Certificates' },
-            { id: 'characters' as const, ar: 'الشخصيات', en: 'Characters' },
-          ].map((tb) => (
-            <button
-              key={tb.id}
-              type="button"
-              onClick={() => {
-                soundEngine.playPop();
-                setTab(tb.id);
-              }}
-              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold cursor-pointer transition-colors ${
-                tab === tb.id ? 'bg-[#8054D9] text-white' : 'text-[#27345C]/75 hover:text-[#27345C]'
-              }`}
-            >
-              {language === 'ar' ? tb.ar : tb.en}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playPop();
+              navigate('reward-shop');
+            }}
+            className="nono-btn-tactile min-h-[44px] px-4 rounded-2xl bg-[#FFD84D] text-[#27345C] text-xs sm:text-sm font-extrabold flex items-center gap-1.5 cursor-pointer"
+          >
+            <ShoppingBag className="w-4 h-4" />
+            <span>{language === 'ar' ? 'متجر الجوائز بالنجوم' : 'Star Reward Shop'}</span>
+          </button>
+
+          {/* Segmented Filter Tabs */}
+          <div className="flex items-center gap-1 p-1 bg-white rounded-2xl border border-[#27345C]/12">
+            {[
+              { id: 'badges' as const, ar: 'الأوسمة والجوائز', en: 'Badges' },
+              { id: 'certificates' as const, ar: 'الشهادات', en: 'Certificates' },
+              { id: 'characters' as const, ar: 'الشخصيات', en: 'Characters' },
+            ].map((tb) => (
+              <button
+                key={tb.id}
+                type="button"
+                onClick={() => {
+                  soundEngine.playPop();
+                  setTab(tb.id);
+                }}
+                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold cursor-pointer transition-colors ${
+                  tab === tb.id ? 'bg-[#8054D9] text-white' : 'text-[#27345C]/75 hover:text-[#27345C]'
+                }`}
+              >
+                {language === 'ar' ? tb.ar : tb.en}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

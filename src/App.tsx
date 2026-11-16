@@ -13,7 +13,13 @@ import { ExamsScreen } from './screens/ExamsScreen';
 import { FunZoneScreen } from './screens/FunZoneScreen';
 import { GameArenaScreen, GameResultsScreen } from './screens/GameArenaScreen';
 import { HomeScreen } from './screens/HomeScreen';
+import { MonthlyReportScreen } from './screens/MonthlyReportScreen';
+import { MyAvatarScreen } from './screens/MyAvatarScreen';
+import { MyPetScreen } from './screens/MyPetScreen';
 import { MyRoomScreen } from './screens/MyRoomScreen';
+import { BrainGamesScreen } from './screens/BrainGamesScreen';
+import { CreativeStudioScreen } from './screens/CreativeStudioScreen';
+import { RewardShopScreen } from './screens/RewardShopScreen';
 import { ParentDashboardScreen } from './screens/ParentDashboardScreen';
 import { TeacherDashboardScreen } from './screens/TeacherDashboardScreen';
 import {
@@ -78,8 +84,20 @@ const ScreenRouter: React.FC = () => {
         return <StoryReaderScreen />;
       case 'my-room':
         return <MyRoomScreen />;
+      case 'my-avatar':
+        return <MyAvatarScreen />;
+      case 'my-pet':
+        return <MyPetScreen />;
+      case 'brain-games':
+        return <BrainGamesScreen />;
+      case 'creative-studio':
+        return <CreativeStudioScreen />;
+      case 'reward-shop':
+        return <RewardShopScreen />;
       case 'achievements':
         return <AchievementsScreen />;
+      case 'monthly-report':
+        return <MonthlyReportScreen />;
       case 'parent-dashboard':
         return <ParentDashboardScreen />;
       case 'teacher-dashboard':

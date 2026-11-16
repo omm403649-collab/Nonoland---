@@ -121,17 +121,20 @@ html.reduced-motion * {
   scroll-behavior: auto !important;
 }
 
-/* Print Styles for Certificates */
+/* Print Styles for Certificates & Monthly Development Reports */
 @media print {
   body * {
     visibility: hidden;
   }
   #printable-certificate,
-  #printable-certificate * {
+  #printable-certificate *,
+  #printable-monthly-report,
+  #printable-monthly-report * {
     visibility: visible;
   }
-  #printable-certificate {
-    position: fixed;
+  #printable-certificate,
+  #printable-monthly-report {
+    position: absolute;
     left: 0;
     top: 0;
     width: 100%;

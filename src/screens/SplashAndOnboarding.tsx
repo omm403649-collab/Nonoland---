@@ -1,21 +1,16 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  ArrowLeft,
-  ArrowRight,
   Check,
-  Compass,
   Eye,
   EyeOff,
   KeyRound,
-  Languages,
-  Lock,
   MailCheck,
   Plus,
   Sparkles,
   UserCheck,
 } from 'lucide-react';
-import nonoHeroImg from '../assets/images/nono_companion_hero_1794739847988.jpg';
+import { CinematicWelcomeIntro, INTRO_SKIP_STORAGE_KEY } from '../components/CinematicWelcomeIntro';
 import { NonoCharacter } from '../components/NonoCharacter';
 import { useNonoLand } from '../context/NonoLandContext';
 import { CHARACTER_COMPANIONS } from '../data/rewardsAndRoom';
@@ -31,143 +26,7 @@ import {
 } from '../utils/validation';
 
 export const SplashScreen: React.FC = () => {
-  const { navigate, language, setLanguage, childrenList, selectChild } = useNonoLand();
-  const ArrowIcon = language === 'ar' ? ArrowLeft : ArrowRight;
-
-  return (
-    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-[#27345C] via-[#4C348F] to-[#8054D9] text-white flex flex-col justify-between p-5 sm:p-8">
-      {/* Animated starry sky backdrop */}
-      <div className="pointer-events-none absolute inset-0" aria-hidden="true">
-        <div className="absolute top-12 start-12 w-3 h-3 rounded-full bg-[#FFD84D] animate-twinkle" />
-        <div className="absolute top-28 end-20 w-4 h-4 rounded-full bg-[#39BDF2] animate-twinkle" style={{ animationDelay: '-1s' }} />
-        <div className="absolute bottom-36 start-1/4 w-2.5 h-2.5 rounded-full bg-[#FF78B7] animate-twinkle" style={{ animationDelay: '-2s' }} />
-        <div className="absolute -bottom-24 -start-24 w-96 h-96 rounded-full bg-[#39BDF2]/20 blur-3xl" />
-        <div className="absolute -top-24 -end-24 w-96 h-96 rounded-full bg-[#FF78B7]/20 blur-3xl" />
-      </div>
-
-      {/* Top row: Brand & Language */}
-      <div className="relative z-10 max-w-6xl w-full mx-auto flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-[#FFD84D] text-[#27345C] flex items-center justify-center text-2xl shadow-lg">
-            🦊
-          </div>
-          <span className="text-2xl font-extrabold tracking-tight">{t(UI_COPY.appName, language)}</span>
-        </div>
-        <button
-          type="button"
-          onClick={() => setLanguage(language === 'ar' ? 'en' : 'ar')}
-          className="h-11 px-4 rounded-2xl bg-white/15 hover:bg-white/25 border border-white/25 text-sm font-bold flex items-center gap-2 cursor-pointer transition-colors"
-        >
-          <Languages className="w-4 h-4 text-[#FFD84D]" />
-          <span>{language === 'ar' ? 'English' : 'العربية'}</span>
-        </button>
-      </div>
-
-      {/* Hero Centerpiece */}
-      <div className="relative z-10 max-w-6xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center my-auto py-8">
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="lg:col-span-7 space-y-5 text-center lg:text-start"
-        >
-          <p className="text-sm sm:text-base font-bold text-[#FFD84D]">
-            {language === 'ar'
-              ? 'عالم تعليمي تفاعلي مخصص للأعمار من ٣ إلى ٨ سنوات'
-              : 'Personalized Interactive Educational Universe · Ages 3 to 8'}
-          </p>
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-tight text-balance">
-            {language === 'ar'
-              ? 'لكل طفل عالمه السحري ومغامرته المختلفة'
-              : 'Every Child. A Different World. A Unique Adventure.'}
-          </h1>
-          <p className="text-base sm:text-lg text-white/85 max-w-2xl mx-auto lg:mx-0 leading-relaxed">
-            {language === 'ar'
-              ? 'نونو يرحب بطفلك، يتكيّف مع عمره وقدراته، ويأخذه في رحلة بين ١٠ عوالم تعليمية، قصص تفاعلية، مختبر اكتشاف ذكي، وغرفة يزينها بإنجازاته.'
-              : 'Nono greets your child by name, adapts to their developmental stage, and unlocks 10 interactive worlds, branching stories, a playful Discovery Lab, and their own customizable room.'}
-          </p>
-
-          <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-2">
-            <button
-              type="button"
-              onClick={() => {
-                soundEngine.playSuccess();
-                navigate('home');
-              }}
-              className="nono-btn-tactile h-14 px-7 rounded-2xl bg-[#FFD84D] text-[#27345C] text-lg font-extrabold flex items-center gap-2.5 cursor-pointer"
-            >
-              <Sparkles className="w-5 h-5" />
-              <span>{t(UI_COPY.startAdventure, language)}</span>
-              <ArrowIcon className="w-5 h-5" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => navigate('onboarding')}
-              className="h-14 px-6 rounded-2xl bg-white/15 hover:bg-white/25 border border-white/30 text-white font-bold flex items-center gap-2 cursor-pointer transition-colors"
-            >
-              <Compass className="w-5 h-5 text-[#39BDF2]" />
-              <span>{language === 'ar' ? 'جولة التعريف وإعداد طفل جديد' : 'Guided Onboarding & New Child'}</span>
-            </button>
-          </div>
-
-          {/* Quick Age Profile Launcher */}
-          <div className="pt-4">
-            <p className="text-xs font-bold text-white/75 mb-2.5">
-              {language === 'ar'
-                ? 'أو جرّب فوراً تجربة عمرية جاهزة:'
-                : 'Or jump straight into any age-band experience:'}
-            </p>
-            <div className="flex flex-wrap justify-center lg:justify-start gap-2">
-              {childrenList.map((child) => (
-                <button
-                  key={child.id}
-                  type="button"
-                  onClick={() => {
-                    selectChild(child.id);
-                    navigate('home');
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-white/12 hover:bg-white/25 border border-white/20 text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer transition-colors"
-                >
-                  <span>{child.displayName}</span>
-                  <span className="text-[#FFD84D]">· {t(AGE_GROUP_META[child.ageGroup].label, language)}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, scale: 0.92 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.6, delay: 0.1 }}
-          className="lg:col-span-5 flex justify-center"
-        >
-          <div className="relative w-72 h-72 sm:w-96 sm:h-96 rounded-[2.5rem] p-3 bg-white/15 border-2 border-white/30 shadow-2xl animate-float-slow">
-            <img
-              src={nonoHeroImg}
-              alt={language === 'ar' ? 'نونو صديق الأطفال في نونو لاند' : 'Nono the cosmic star-fox companion'}
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover rounded-[2rem]"
-            />
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Footer note */}
-      <div className="relative z-10 max-w-6xl w-full mx-auto flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
-        <span>{language === 'ar' ? 'مساحة آمنة للأطفال · بدون إعلانات أو محادثات مفتوحة' : 'Child-Safe Space · Zero Ads · Parent-Gated Controls'}</span>
-        <button
-          type="button"
-          onClick={() => navigate('parent-auth')}
-          className="hover:text-white underline cursor-pointer flex items-center gap-1"
-        >
-          <Lock className="w-3.5 h-3.5" />
-          <span>{language === 'ar' ? 'دخول / تسجيل الأهل' : 'Parent Sign In / Register'}</span>
-        </button>
-      </div>
-    </div>
-  );
+  return <CinematicWelcomeIntro />;
 };
 
 export const OnboardingScreen: React.FC = () => {
@@ -883,9 +742,25 @@ export const ParentAuthScreen: React.FC = () => {
         </form>
 
         <div className="pt-3 border-t border-[#27345C]/10 flex flex-wrap items-center justify-between gap-2 text-xs text-[#27345C]/70">
-          <button type="button" onClick={() => navigate('home')} className="underline cursor-pointer">
-            {language === 'ar' ? 'المعاينة بالحساب التجريبي' : 'Explore with Sample Family'}
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="button" onClick={() => navigate('home')} className="underline cursor-pointer">
+              {language === 'ar' ? 'المعاينة بالحساب التجريبي' : 'Explore with Sample Family'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  localStorage.removeItem(INTRO_SKIP_STORAGE_KEY);
+                } catch {
+                  // ignore
+                }
+                navigate('splash');
+              }}
+              className="underline text-[#8054D9] font-bold cursor-pointer"
+            >
+              {language === 'ar' ? 'إعادة عرض المقدمة' : 'Replay Welcome Intro'}
+            </button>
+          </div>
           {mode === 'login' ? (
             <button
               type="button"

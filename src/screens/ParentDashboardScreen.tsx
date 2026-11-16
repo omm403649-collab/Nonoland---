@@ -3,6 +3,7 @@ import {
   Award,
   BarChart3,
   BookOpen,
+  Calendar,
   Check,
   ClipboardCheck,
   Clock,
@@ -10,10 +11,13 @@ import {
   Download,
   ExternalLink,
   Eye,
+  FileBarChart2,
   Film,
+  Flame,
   Lock,
   Plus,
   RefreshCw,
+  Save,
   ShieldCheck,
   Sparkles,
   Star,
@@ -35,13 +39,18 @@ import {
   getLevel2LessonsBySubject,
   LEVEL2_SUBJECT_META,
 } from '../data/level2Curriculum';
+import { DEFAULT_PARENT_SCHEDULE, REPORT_SUBJECT_LABELS } from '../data/worldCatalog';
 import { OFFICIAL_YOUTUBE_CHANNEL } from '../data/funZoneData';
 import { LEARNING_WORLDS } from '../data/worlds';
 import { generateParentInsights } from '../engine/adaptiveEngine';
+import { calculateStreakDays, computeChildSubjectMetrics } from '../engine/monthlyReportEngine';
 import { AGE_GROUP_META, formatDate, formatNumber, SKILL_LABELS, t, UI_COPY } from '../i18n/translations';
 import {
+  ActivityTimelineEvent,
   Certificate,
   LocalizedText,
+  ParentSchedulePreferences,
+  ReportSubjectKey,
   SecurityEventLog,
   SkillId,
   YouTubeCategory,
@@ -99,6 +108,7 @@ export const ParentDashboardScreen: React.FC = () => {
     authSession,
     logoutParent,
     logoutAllDevices,
+    saveLearningPlan,
   } = useNonoLand();
 
   // Parental Gate Challenge (Real password when authenticated; math check in sample preview)
@@ -111,6 +121,14 @@ export const ParentDashboardScreen: React.FC = () => {
 
   const [tab, setTab] = useState<'reports' | 'profiles' | 'controls' | 'offline' | 'youtube' | 'admin'>('reports');
   const [selectedCert, setSelectedCert] = useState<Certificate | null>(null);
+  const [timelineCatFilter, setTimelineCatFilter] = useState<'all' | ActivityTimelineEvent['category']>('all');
+  const [timelineRangeFilter, setTimelineRangeFilter] = useState<'7d' | '30d' | 'all'>('30d');
+  const [scheduleDraft, setScheduleDraft] = useState<ParentSchedulePreferences>(() => ({
+    ...DEFAULT_PARENT_SCHEDULE,
+    ...(activeChild.parentSchedule || {}),
+  }));
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [scheduleMsg, setScheduleMsg] = useState('');
   const [parentOverview, setParentOverview] = useState<{
     child?: { studentUserEmail?: string };
     assignedExams?: Array<{
@@ -175,6 +193,14 @@ export const ParentDashboardScreen: React.FC = () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    setScheduleDraft({
+      ...DEFAULT_PARENT_SCHEDULE,
+      ...(activeChild.parentSchedule || {}),
+    });
+    setScheduleMsg('');
+  }, [activeChild.id, activeChild.parentSchedule]);
 
   useEffect(() => {
     if (!gateUnlocked || !authSession.authenticated) return;
@@ -409,15 +435,40 @@ export const ParentDashboardScreen: React.FC = () => {
                         : ` · Gentle practice suggested in: ${t(SKILL_LABELS[needsSkill], language)}`)}
                   </p>
                 </div>
-                <span className="px-4 py-2 rounded-2xl bg-white border border-[#8054D9]/20 font-extrabold text-lg text-[#8054D9] tabular-nums">
-                  {totalDone} / 127
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-4 py-2 rounded-2xl bg-white border border-[#8054D9]/20 font-extrabold text-lg text-[#8054D9] tabular-nums">
+                    {totalDone} / 127
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => navigate('monthly-report')}
+                    className="nono-btn-tactile min-h-[44px] px-4 rounded-2xl bg-[#8054D9] text-white text-xs sm:text-sm font-extrabold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <FileBarChart2 className="w-4 h-4" />
+                    <span>{language === 'ar' ? 'التقرير الشهري و PDF' : 'Monthly Report & PDF'}</span>
+                  </button>
+                </div>
               </div>
             );
           })()}
 
           {/* KPI Strip */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="nono-card rounded-2xl p-4">
+              <p className="text-xs font-bold text-[#27345C]/65 flex items-center gap-1">
+                <Flame className="w-3.5 h-3.5 text-[#FF9360]" />
+                <span>{language === 'ar' ? 'السلسلة التعليمية' : 'Learning Streak'}</span>
+              </p>
+              <p className="text-3xl font-extrabold text-[#FF9360] mt-1 font-mono-num">
+                {formatNumber(
+                  activeChild.learningStreakDays ?? calculateStreakDays(activeChild.activeDaysHistory),
+                  language,
+                )}{' '}
+                <span className="text-sm font-bold text-[#27345C]/70">
+                  {language === 'ar' ? 'أيام' : 'days'}
+                </span>
+              </p>
+            </div>
             <div className="nono-card rounded-2xl p-4">
               <p className="text-xs font-bold text-[#27345C]/65">
                 {language === 'ar' ? 'الأنشطة المكتملة' : 'Activities Completed'}
@@ -442,7 +493,7 @@ export const ParentDashboardScreen: React.FC = () => {
                 {formatNumber(exploredWorldsCount, language)} / 10
               </p>
             </div>
-            <div className="nono-card rounded-2xl p-4">
+            <div className="nono-card rounded-2xl p-4 col-span-2 lg:col-span-1">
               <p className="text-xs font-bold text-[#27345C]/65">
                 {language === 'ar' ? 'الشهادات والأوسمة' : 'Certificates & Badges'}
               </p>
@@ -451,6 +502,180 @@ export const ParentDashboardScreen: React.FC = () => {
               </p>
             </div>
           </div>
+
+          {/* Interactive SVG Domain Analytics Chart & Activity Timeline */}
+          {(() => {
+            const domainMetrics = computeChildSubjectMetrics(activeChild);
+            const domainKeys = Object.keys(REPORT_SUBJECT_LABELS) as ReportSubjectKey[];
+            const domainColors: Record<ReportSubjectKey, string> = {
+              arabic: '#8054D9',
+              english: '#39BDF2',
+              math: '#F59E0B',
+              logic: '#6366F1',
+              creative: '#FF78B7',
+              general: '#55D98B',
+            };
+
+            const mergedEvents: ActivityTimelineEvent[] = [
+              ...(activeChild.activityTimeline || []),
+              ...(activeChild.attempts || []).slice(0, 20).map((att) => ({
+                id: `att-${att.id}`,
+                timestamp: att.completedAt,
+                category: 'game' as const,
+                title: {
+                  ar: `نشاط: ${att.activityId}`,
+                  en: `Activity: ${att.activityId}`,
+                },
+                detail: {
+                  ar: `الدقة ${att.accuracy}%`,
+                  en: `${att.accuracy}% accuracy`,
+                },
+                starsEarned: att.accuracy >= 80 ? 3 : 1,
+              })),
+            ]
+              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+            const nowMs = Date.now();
+            const filteredEvents = mergedEvents.filter((evt) => {
+              if (timelineCatFilter !== 'all' && evt.category !== timelineCatFilter) return false;
+              const ageDays = (nowMs - new Date(evt.timestamp).getTime()) / 86400_000;
+              if (timelineRangeFilter === '7d' && ageDays > 7) return false;
+              if (timelineRangeFilter === '30d' && ageDays > 30) return false;
+              return true;
+            });
+
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                {/* Visual SVG Chart */}
+                <div className="lg:col-span-6 nono-card rounded-3xl p-6 space-y-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="text-lg font-extrabold text-[#27345C] flex items-center gap-2">
+                      <BarChart3 className="w-5 h-5 text-[#8054D9]" />
+                      <span>
+                        {language === 'ar'
+                          ? 'الرسم البياني لمجالات التعلم الستة'
+                          : '6-Domain Performance & Activity Chart'}
+                      </span>
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={() => navigate('monthly-report')}
+                      className="text-xs font-extrabold text-[#8054D9] hover:underline cursor-pointer"
+                    >
+                      {language === 'ar' ? 'تقرير مفصل ←' : 'Full Monthly Report →'}
+                    </button>
+                  </div>
+
+                  <svg viewBox="0 0 420 210" className="w-full h-48 bg-[#FFFDF7] rounded-2xl border border-[#27345C]/10 p-2">
+                    {[0, 25, 50, 75, 100].map((tick) => {
+                      const y = 170 - (tick / 100) * 135;
+                      return (
+                        <g key={tick}>
+                          <line x1="36" y1={y} x2="405" y2={y} stroke="#E2E8F0" strokeDasharray="3 3" />
+                          <text x="8" y={y + 4} fontSize="10" fill="#64748B" fontWeight="700">
+                            {tick}%
+                          </text>
+                        </g>
+                      );
+                    })}
+                    {domainKeys.map((dk, idx) => {
+                      const m = domainMetrics[dk];
+                      const pct = m.accuracyPct ?? 0;
+                      const barH = (pct / 100) * 135;
+                      const x = 48 + idx * 60;
+                      const y = 170 - barH;
+                      return (
+                        <g key={dk}>
+                          <rect
+                            x={x}
+                            y={pct > 0 ? y : 164}
+                            width="34"
+                            height={pct > 0 ? barH : 6}
+                            rx="7"
+                            fill={pct > 0 ? domainColors[dk] : '#CBD5E1'}
+                          />
+                          <text x={x + 17} y={pct > 0 ? Math.max(20, y - 6) : 158} textAnchor="middle" fontSize="10" fontWeight="800" fill="#27345C">
+                            {m.accuracyPct !== null ? `${pct}%` : '—'}
+                          </text>
+                          <text x={x + 17} y="192" textAnchor="middle" fontSize="9.5" fontWeight="700" fill="#27345C">
+                            {dk.slice(0, 6).toUpperCase()}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+                  <p className="text-[11px] text-[#27345C]/65">
+                    {language === 'ar'
+                      ? 'الرمز (—) يعني عدم توفر محاولات كافية بعد في هذا المجال.'
+                      : 'Bars marked (—) indicate no recorded accuracy data in that domain yet.'}
+                  </p>
+                </div>
+
+                {/* Filterable Activity Timeline */}
+                <div className="lg:col-span-6 nono-card rounded-3xl p-6 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="text-lg font-extrabold text-[#27345C]">
+                      {language === 'ar' ? 'السجل الزمني للأنشطة' : 'Filterable Activity Timeline'}
+                    </h2>
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={timelineCatFilter}
+                        onChange={(e) => setTimelineCatFilter(e.target.value as typeof timelineCatFilter)}
+                        className="min-h-[36px] px-2.5 rounded-xl bg-[#FFF8E9] border border-[#27345C]/15 text-xs font-bold"
+                      >
+                        <option value="all">{language === 'ar' ? 'كل الأنواع' : 'All Types'}</option>
+                        <option value="lesson">{language === 'ar' ? 'الدروس' : 'Lessons'}</option>
+                        <option value="game">{language === 'ar' ? 'الألعاب' : 'Games'}</option>
+                        <option value="lab">{language === 'ar' ? 'المختبر' : 'Lab'}</option>
+                        <option value="story">{language === 'ar' ? 'القصص' : 'Stories'}</option>
+                        <option value="creative">{language === 'ar' ? 'الإبداع' : 'Creative'}</option>
+                        <option value="pet">{language === 'ar' ? 'الأليف' : 'Pet'}</option>
+                        <option value="reward">{language === 'ar' ? 'المكافآت' : 'Rewards'}</option>
+                      </select>
+                      <select
+                        value={timelineRangeFilter}
+                        onChange={(e) => setTimelineRangeFilter(e.target.value as typeof timelineRangeFilter)}
+                        className="min-h-[36px] px-2.5 rounded-xl bg-[#FFF8E9] border border-[#27345C]/15 text-xs font-bold"
+                      >
+                        <option value="7d">{language === 'ar' ? 'آخر ٧ أيام' : 'Last 7d'}</option>
+                        <option value="30d">{language === 'ar' ? 'آخر ٣٠ يوماً' : 'Last 30d'}</option>
+                        <option value="all">{language === 'ar' ? 'كل الأوقات' : 'All Time'}</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {filteredEvents.length === 0 ? (
+                    <p className="text-xs text-[#27345C]/70 py-8 text-center">
+                      {language === 'ar'
+                        ? 'لا توجد أحداث مطابقة لهذه التصفية حتى الآن.'
+                        : 'No recorded activity events match this filter yet.'}
+                    </p>
+                  ) : (
+                    <div className="space-y-2 max-h-56 overflow-y-auto pe-1">
+                      {filteredEvents.slice(0, 15).map((evt) => (
+                        <div
+                          key={evt.id}
+                          className="p-3 rounded-2xl bg-[#FFF8E9] border border-[#27345C]/10 flex items-center justify-between gap-2 text-xs"
+                        >
+                          <div>
+                            <p className="font-extrabold text-[#27345C]">{t(evt.title, language)}</p>
+                            <p className="text-[#27345C]/65">
+                              {t(evt.detail, language)} · {formatDate(evt.timestamp, language)}
+                            </p>
+                          </div>
+                          {typeof evt.starsEarned === 'number' && evt.starsEarned > 0 && (
+                            <span className="px-2 py-0.5 rounded-lg bg-[#FFD84D]/45 font-extrabold text-[#78350F] shrink-0">
+                              +{evt.starsEarned} ⭐
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Level 1 Curriculum Report (Calculated Strictly from Real Saved Progress) */}
           {(() => {
@@ -1316,6 +1541,144 @@ export const ParentDashboardScreen: React.FC = () => {
               >
                 {language === 'ar' ? 'إعادة ضبط البيانات التجريبية' : 'Reset Local Demo Data'}
               </button>
+            </div>
+          </div>
+
+          {/* Learning Schedule & Parent Notifications Preferences */}
+          <div className="lg:col-span-2 nono-card rounded-3xl p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-extrabold text-[#27345C] flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-[#8054D9]" />
+                  <span>
+                    {language === 'ar'
+                      ? 'جدول التعلم الأسبوعي وتفضيلات التنبيهات'
+                      : 'Weekly Learning Schedule & Notification Controls'}
+                  </span>
+                </h2>
+                <p className="text-xs text-[#27345C]/70">
+                  {language === 'ar'
+                    ? `مخصص للطفل: ${activeChild.displayName}`
+                    : `Saved per child profile: ${activeChild.displayName}`}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={savingSchedule}
+                onClick={async () => {
+                  setSavingSchedule(true);
+                  setScheduleMsg('');
+                  try {
+                    await saveLearningPlan({ parentSchedule: scheduleDraft });
+                    soundEngine.playSuccess();
+                    setScheduleMsg(
+                      language === 'ar'
+                        ? 'تم حفظ جدول التعلم والتنبيهات ✓'
+                        : 'Learning schedule & preferences saved ✓',
+                    );
+                  } finally {
+                    setSavingSchedule(false);
+                  }
+                }}
+                className="nono-btn-tactile min-h-[44px] px-4 rounded-xl bg-[#8054D9] text-white text-xs sm:text-sm font-extrabold flex items-center gap-2 cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>{language === 'ar' ? 'حفظ الجدول' : 'Save Schedule'}</span>
+              </button>
+            </div>
+
+            {scheduleMsg && (
+              <p className="text-xs font-extrabold text-[#166534] bg-[#E2F9EC] px-3 py-2 rounded-xl">
+                {scheduleMsg}
+              </p>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <p className="text-xs font-extrabold text-[#27345C]">
+                  {language === 'ar' ? 'الأيام المفضلة للتعلم' : 'Preferred Learning Days'}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const).map((day) => {
+                    const active = scheduleDraft.preferredDays.includes(day);
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() =>
+                          setScheduleDraft((prev) => ({
+                            ...prev,
+                            preferredDays: active
+                              ? prev.preferredDays.filter((d) => d !== day)
+                              : [...prev.preferredDays, day],
+                          }))
+                        }
+                        className={`min-h-[40px] px-3 rounded-xl text-xs font-extrabold border cursor-pointer uppercase ${
+                          active
+                            ? 'bg-[#8054D9] text-white border-[#8054D9]'
+                            : 'bg-white border-[#27345C]/15 text-[#27345C]'
+                        }`}
+                      >
+                        {day}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs font-bold mb-1">
+                    <span>{language === 'ar' ? 'الهدف اليومي المقترح' : 'Daily Learning Goal'}</span>
+                    <span className="font-mono-num">{scheduleDraft.dailyGoalMinutes} min</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={10}
+                    max={60}
+                    step={5}
+                    value={scheduleDraft.dailyGoalMinutes}
+                    onChange={(e) =>
+                      setScheduleDraft((prev) => ({ ...prev, dailyGoalMinutes: Number(e.target.value) }))
+                    }
+                    className="w-full accent-[#8054D9]"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2.5">
+                <label className="flex items-center justify-between p-3 rounded-2xl bg-[#FFF8E9] cursor-pointer text-xs font-bold">
+                  <span>{language === 'ar' ? 'ملخص أسبوعي لتطور الطفل' : 'Weekly Progress Summary'}</span>
+                  <input
+                    type="checkbox"
+                    checked={scheduleDraft.weeklySummaryEmail}
+                    onChange={(e) =>
+                      setScheduleDraft((prev) => ({ ...prev, weeklySummaryEmail: e.target.checked }))
+                    }
+                    className="w-4 h-4 accent-[#8054D9]"
+                  />
+                </label>
+                <label className="flex items-center justify-between p-3 rounded-2xl bg-[#FFF8E9] cursor-pointer text-xs font-bold">
+                  <span>{language === 'ar' ? 'تنبيهات الإنجازات والشهادات' : 'Achievement & Certificate Alerts'}</span>
+                  <input
+                    type="checkbox"
+                    checked={scheduleDraft.achievementAlerts}
+                    onChange={(e) =>
+                      setScheduleDraft((prev) => ({ ...prev, achievementAlerts: e.target.checked }))
+                    }
+                    className="w-4 h-4 accent-[#8054D9]"
+                  />
+                </label>
+                <label className="flex items-center justify-between p-3 rounded-2xl bg-[#FFF8E9] text-xs font-bold">
+                  <span>{language === 'ar' ? 'وقت التذكير اليومي' : 'Preferred Reminder Time'}</span>
+                  <input
+                    type="time"
+                    value={scheduleDraft.reminderTime}
+                    onChange={(e) =>
+                      setScheduleDraft((prev) => ({ ...prev, reminderTime: e.target.value }))
+                    }
+                    className="h-9 px-2 rounded-xl bg-white border border-[#27345C]/15 font-mono-num"
+                  />
+                </label>
+              </div>
             </div>
           </div>
         </div>
