@@ -107,6 +107,55 @@ class NonoSoundEngine {
     }
   }
 
+  private activeTimers: number[] = [];
+  private activePlaybackId = 0;
+
+  stopAllAudio() {
+    this.activePlaybackId += 1;
+    if (typeof window !== 'undefined') {
+      for (const timer of this.activeTimers) {
+        window.clearTimeout(timer);
+      }
+      this.activeTimers = [];
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    }
+  }
+
+  playMelodySequence(
+    notes: Array<{ noteIdx: number; instrument?: 'xylophone' | 'drum' | 'flute' | 'bell'; delayMs: number }>,
+    onStep?: (stepIdx: number) => void,
+    onDone?: () => void,
+  ): () => void {
+    this.stopAllAudio();
+    const runId = this.activePlaybackId;
+    if (typeof window === 'undefined') return () => {};
+
+    let maxDelay = 0;
+    notes.forEach((n, idx) => {
+      maxDelay = Math.max(maxDelay, n.delayMs);
+      const t = window.setTimeout(() => {
+        if (this.activePlaybackId !== runId) return;
+        this.playInstrument(n.instrument || 'xylophone', n.noteIdx);
+        onStep?.(idx);
+      }, n.delayMs);
+      this.activeTimers.push(t);
+    });
+
+    const endTimer = window.setTimeout(() => {
+      if (this.activePlaybackId !== runId) return;
+      onDone?.();
+    }, maxDelay + 360);
+    this.activeTimers.push(endTimer);
+
+    return () => {
+      if (this.activePlaybackId === runId) {
+        this.stopAllAudio();
+      }
+    };
+  }
+
   speak(text: string, lang: Language, options?: { slow?: boolean }) {
     if (this.settings.muted || !this.settings.voiceNarration) return;
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
@@ -124,9 +173,7 @@ class NonoSoundEngine {
   }
 
   stopSpeech() {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
+    this.stopAllAudio();
   }
 }
 

@@ -83,7 +83,11 @@ export type AppScreen =
   | 'achievements'
   | 'parent-dashboard'
   | 'teacher-dashboard'
-  | 'admin-dashboard';
+  | 'admin-dashboard'
+  | 'nono-ai'
+  | 'reading-adventure'
+  | 'family-activities'
+  | 'entertainment-hub';
 
 export type ConceptDomain = 'arabic' | 'english' | 'numbers' | 'colors-shapes' | 'science';
 
@@ -293,9 +297,26 @@ export interface SecurityEventLog {
     | 'FEATURE_FLAG_CHANGE'
     | 'HOMEWORK_ACTION'
     | 'BACKUP_RESTORE'
-    | 'OFFLINE_SYNC';
+    | 'OFFLINE_SYNC'
+    | 'AI_CHAT'
+    | 'AI_SAFETY_BLOCK'
+    | 'PARENT_SETTING_CHANGE'
+    | 'REWARD_REDEEM'
+    | 'CHILD_PROFILE_CHANGE'
+    | 'READING_STAGE_COMPLETE'
+    | 'FAMILY_ACTIVITY'
+    | 'SMART_ASSESSMENT'
+    | 'ENTERTAINMENT_SAVE';
   actorId?: string;
+  actorRole?: string;
   role?: string;
+  actionType?: string;
+  recordType?: string;
+  recordId?: string;
+  previousValue?: unknown;
+  newValue?: unknown;
+  reason?: string;
+  outcome?: 'success' | 'denied' | 'blocked' | 'error';
   ip?: string;
   summary: string;
   createdAt: string;
@@ -546,6 +567,14 @@ export interface ChildProfile {
   parentSchedule?: ParentSchedulePreferences;
   nextMonthPlan?: LearningPlanGoal[];
   activityTimeline?: ActivityTimelineEvent[];
+  aiAssistantEnabled?: boolean;
+  readingStageProgress?: Record<number, ReadingStageProgress>;
+  familyActivitiesCompleted?: SharedFamilyActivityRecord[];
+  musicCompositions?: MusicComposition[];
+  buildConstructions?: BuildConstruction[];
+  completedDiscoveryThemes?: string[];
+  completedRecipes?: string[];
+  completedTheaterScenes?: string[];
 }
 
 export interface LearningWorld {
@@ -1332,7 +1361,18 @@ export interface LearningPlanGoal {
 export interface ActivityTimelineEvent {
   id: string;
   timestamp: string;
-  category: 'lesson' | 'game' | 'lab' | 'story' | 'creative' | 'pet' | 'reward' | 'exam';
+  category:
+    | 'lesson'
+    | 'game'
+    | 'lab'
+    | 'story'
+    | 'creative'
+    | 'pet'
+    | 'reward'
+    | 'exam'
+    | 'reading'
+    | 'family'
+    | 'entertainment';
   title: LocalizedText;
   detail: LocalizedText;
   starsEarned?: number;
@@ -1387,5 +1427,157 @@ export interface MonthlyReportData {
     baselineAvailable: boolean;
   } | null;
 }
+
+// =========================================================================
+// PHASE 1-6: NONO AI, SMART ASSESSMENT, EMOTIONAL FEEDBACK, READING, CREATIVE & FAMILY
+// =========================================================================
+
+export interface NonoAiChatRequest {
+  childId: string;
+  message: string;
+  mode?: 'explain' | 'hint' | 'question' | 'encourage';
+  language?: Language;
+  currentTopic?: string;
+  currentQuestionPrompt?: string;
+  attemptCount?: number;
+}
+
+export interface NonoAiChatResponse {
+  reply: string;
+  hint?: string;
+  explanation?: string;
+  followUpQuestion?: string;
+  recommendedScreen?: AppScreen;
+  mood: NonoMood;
+  blocked?: boolean;
+  safeRedirect?: boolean;
+  usageRemaining?: number;
+}
+
+export type SmartAssessmentFormat =
+  | 'mcq'
+  | 'image-recognition'
+  | 'listening'
+  | 'matching'
+  | 'sorting'
+  | 'sequencing'
+  | 'memory'
+  | 'phonics'
+  | 'counting-math'
+  | 'age-challenge';
+
+export interface SmartAssessmentQuestionPublic {
+  id: string;
+  format: SmartAssessmentFormat;
+  domain: 'arabic' | 'english' | 'math' | 'colors-shapes' | 'logic' | 'science';
+  skillId: SkillId;
+  difficulty: AdaptiveDifficultyTier;
+  ageGroups: AgeGroupId[];
+  prompt: LocalizedText;
+  audioText?: string;
+  audioLang?: Language;
+  visualCue?: string;
+  options?: Array<{ id: string; label: LocalizedText; visual: string; colorHex?: string }>;
+  pairs?: Array<{ id: string; left: string; rightOptions: string[] }>;
+  sortBuckets?: Array<{ id: string; label: LocalizedText; emoji: string }>;
+  sortItems?: Array<{ id: string; label: LocalizedText; visual: string }>;
+  sequencePool?: string[];
+  memoryTiles?: Array<{ id: string; visual: string; pairKey: string }>;
+  countingPrompt?: { emoji: string; groupA: number; groupB?: number; op?: '+' | '-' | 'count' };
+}
+
+export interface EmotionalFeedbackPayload {
+  tone: 'celebrate' | 'encourage' | 'simplify';
+  characterId: OfficialCharacterId;
+  title: LocalizedText;
+  message: LocalizedText;
+  hintStep?: LocalizedText;
+  workedExample?: {
+    visual: string;
+    explanation: LocalizedText;
+  };
+  simplifiedSteps?: LocalizedText[];
+  recommendedRevisionScreen?: AppScreen;
+}
+
+export interface SmartAssessmentStartResponse {
+  sessionId: string;
+  childId: string;
+  difficultyTier: AdaptiveDifficultyTier;
+  totalQuestions: number;
+  currentIndex: number;
+  question: SmartAssessmentQuestionPublic;
+}
+
+export interface SmartAssessmentSubmitResponse {
+  correct: boolean;
+  difficultyTier: AdaptiveDifficultyTier;
+  streak: number;
+  consecutiveMistakes: number;
+  emotionalFeedback: EmotionalFeedbackPayload;
+  finished: boolean;
+  nextIndex?: number;
+  nextQuestion?: SmartAssessmentQuestionPublic;
+  summary?: {
+    score: number;
+    totalQuestions: number;
+    percentage: number;
+    starsEarned: number;
+    avgResponseMs: number;
+    strengths: SkillId[];
+    weakSkills: SkillId[];
+    recommendedRevision: Array<{ screen: AppScreen; label: LocalizedText; reason: LocalizedText }>;
+    updatedSkillProgress: Record<SkillId, SkillProgress>;
+  };
+}
+
+export type ReadingStageId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+
+export interface ReadingStageProgress {
+  stage: ReadingStageId;
+  mastered: boolean;
+  bestAccuracy: number;
+  attempts: number;
+  completedAt?: string;
+}
+
+export interface MusicNoteEvent {
+  noteIdx: number;
+  instrument: 'xylophone' | 'drum' | 'flute' | 'bell';
+  step: number;
+}
+
+export interface MusicComposition {
+  id: string;
+  title: string;
+  notes: MusicNoteEvent[];
+  createdAt: string;
+}
+
+export interface BuildBlockItem {
+  id: string;
+  shape: 'square' | 'triangle' | 'arch' | 'pillar' | 'window' | 'tree' | 'bridge';
+  color: string;
+  x: number;
+  y: number;
+}
+
+export interface BuildConstruction {
+  id: string;
+  title: string;
+  templateId: 'house' | 'bridge' | 'tower' | 'free';
+  blocks: BuildBlockItem[];
+  createdAt: string;
+}
+
+export interface SharedFamilyActivityRecord {
+  id: string;
+  activityKey: string;
+  title: LocalizedText;
+  durationMinutes: number;
+  reflectionNote?: string;
+  completedAt: string;
+}
+
 
 

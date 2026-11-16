@@ -449,6 +449,57 @@ export const MonthlyReportScreen: React.FC = () => {
           </div>
         </section>
 
+        {/* Reading Adventure & Shared Family Co-Play Summary */}
+        {(() => {
+          const masteredReadingCount = Object.values(activeChild.readingStageProgress || {}).filter(
+            (s) => s.mastered,
+          ).length;
+          const nextReadingStage = Math.min(8, masteredReadingCount + 1);
+          return (
+            <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="nono-card rounded-3xl p-5 space-y-2.5 bg-[#FFF8E9]/80">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-extrabold text-base text-[#27345C]">
+                    {language === 'ar' ? 'تقدّم مغامرة القراءة (٨ مراحل)' : 'Reading Adventure Mastery (8 Stages)'}
+                  </h3>
+                  <span className="px-2.5 py-1 rounded-xl bg-[#FF9360]/20 text-[#9A3412] text-xs font-extrabold font-mono-num">
+                    {masteredReadingCount} / 8
+                  </span>
+                </div>
+                <div className="h-2.5 rounded-full bg-white border border-[#27345C]/10 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-[#FF9360] to-[#8054D9]"
+                    style={{
+                      width: `${Math.round((masteredReadingCount / 8) * 100)}%`,
+                    }}
+                  />
+                </div>
+                <p className="text-xs text-[#27345C]/75">
+                  {language === 'ar'
+                    ? `المرحلة الحالية: المرحلة ${nextReadingStage} · يتم فتح كل مرحلة بعد إتقان السابقة.`
+                    : `Current stage: Stage ${nextReadingStage} · Sequential prerequisite mastery enforced.`}
+                </p>
+              </div>
+
+              <div className="nono-card rounded-3xl p-5 space-y-2.5 bg-[#E2F9EC]/50">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-extrabold text-base text-[#14532D]">
+                    {language === 'ar' ? 'الأنشطة العائلية المشتركة' : 'Parent-Child Shared Activities'}
+                  </h3>
+                  <span className="px-2.5 py-1 rounded-xl bg-[#55D98B]/30 text-[#14532D] text-xs font-extrabold font-mono-num">
+                    {(activeChild.familyActivitiesCompleted || []).length}
+                  </span>
+                </div>
+                <p className="text-xs text-[#27345C]/80 leading-relaxed">
+                  {language === 'ar'
+                    ? 'تُوثَّق جلسات اللعب والقراءة المشتركة مع الأهل بشكل مستقل لتشجيع العادات الإيجابية دون تضخيم نسب الإتقان الأكاديمي المستقل للطفل.'
+                    : 'Shared parent-child activities are logged separately to celebrate bonding and habits without inflating independent academic mastery scores.'}
+                </p>
+              </div>
+            </section>
+          );
+        })()}
+
         {/* Editable Next Month Learning Plan */}
         <section className="nono-card rounded-3xl p-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">

@@ -20,6 +20,7 @@ import {
   getTodayDayKey,
 } from '../src/engine/monthlyReportEngine';
 import { sanitizeShortText } from '../src/utils/validation';
+import { recordAuditEvent } from './auditLog';
 import { appendSecurityLog, getClientIp } from './security';
 import type { AuthenticatedRequest, ServerDb, StoredChildRecord } from './dbTypes';
 import type {
@@ -611,6 +612,20 @@ export function registerWorldExperienceRoutes({
       detail: { ar: `تم الاستبدال مقابل ${item.costStars} نجوم`, en: `Redeemed for ${item.costStars} stars` },
     });
 
+    recordAuditEvent(db, {
+      eventType: 'REWARD_REDEEM',
+      actorId: req.authSession!.user.id,
+      actorRole: req.authSession!.user.role,
+      actionType: 'REDEEM_REWARD_ITEM',
+      recordType: 'reward_transaction',
+      recordId: tx.id,
+      previousValue: { stars: child.stars + item.costStars },
+      newValue: { itemId: item.id, starsSpent: item.costStars, starsRemaining: child.stars },
+      reason: 'Child redeemed star balance for shop item',
+      ip: getClientIp(req),
+      summary: `Redeemed ${item.id} (${item.costStars} stars) for child ${child.id}`,
+    });
+
     saveDb(db);
     res.json({ redeemed: true, transaction: tx, child });
   });
@@ -779,6 +794,22 @@ export function registerWorldExperienceRoutes({
         enabled: Boolean(g.enabled),
       }));
     }
+
+    recordAuditEvent(db, {
+      eventType: 'PARENT_SETTING_CHANGE',
+      actorId: req.authSession!.user.id,
+      actorRole: req.authSession!.user.role,
+      actionType: 'UPDATE_LEARNING_PLAN',
+      recordType: 'child_learning_plan',
+      recordId: child.id,
+      newValue: {
+        dailyGoalMinutes: child.parentSchedule?.dailyGoalMinutes,
+        goalsCount: child.nextMonthPlan?.length || 0,
+      },
+      reason: 'Parent updated schedule preferences or monthly goals',
+      ip: getClientIp(req),
+      summary: `Updated learning plan and schedule for child ${child.id}`,
+    });
 
     saveDb(db);
     res.json({

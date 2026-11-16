@@ -2,6 +2,7 @@ import React from 'react';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import { AppShell } from './components/AppShell';
 import { CelebrationOverlay } from './components/CelebrationOverlay';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { StudentHomeworkSection } from './components/StudentHomeworkSection';
 import { NonoLandProvider, useNonoLand } from './context/NonoLandContext';
 import { AchievementsScreen } from './screens/AchievementsScreen';
@@ -9,7 +10,9 @@ import { AcademyScreen } from './screens/AcademyScreen';
 import { AdminDashboardScreen } from './screens/AdminDashboardScreen';
 import { AdventureMapScreen, WorldDetailScreen } from './screens/AdventureMapScreen';
 import { AssessmentResultsScreen, DiscoveryLabScreen } from './screens/DiscoveryLabScreen';
+import { EntertainmentHubScreen } from './screens/EntertainmentHubScreen';
 import { ExamsScreen } from './screens/ExamsScreen';
+import { FamilyActivitiesScreen } from './screens/FamilyActivitiesScreen';
 import { FunZoneScreen } from './screens/FunZoneScreen';
 import { GameArenaScreen, GameResultsScreen } from './screens/GameArenaScreen';
 import { HomeScreen } from './screens/HomeScreen';
@@ -17,8 +20,10 @@ import { MonthlyReportScreen } from './screens/MonthlyReportScreen';
 import { MyAvatarScreen } from './screens/MyAvatarScreen';
 import { MyPetScreen } from './screens/MyPetScreen';
 import { MyRoomScreen } from './screens/MyRoomScreen';
+import { NonoAiScreen } from './screens/NonoAiScreen';
 import { BrainGamesScreen } from './screens/BrainGamesScreen';
 import { CreativeStudioScreen } from './screens/CreativeStudioScreen';
+import { ReadingAdventureScreen } from './screens/ReadingAdventureScreen';
 import { RewardShopScreen } from './screens/RewardShopScreen';
 import { ParentDashboardScreen } from './screens/ParentDashboardScreen';
 import { TeacherDashboardScreen } from './screens/TeacherDashboardScreen';
@@ -32,7 +37,7 @@ import {
 import { StoriesScreen, StoryReaderScreen } from './screens/StoriesScreen';
 
 const ScreenRouter: React.FC = () => {
-  const { screen, parentSettings } = useNonoLand();
+  const { screen, parentSettings, language, navigate } = useNonoLand();
 
   const fullBleedScreens = [
     'splash',
@@ -104,6 +109,14 @@ const ScreenRouter: React.FC = () => {
         return <TeacherDashboardScreen />;
       case 'admin-dashboard':
         return <AdminDashboardScreen />;
+      case 'nono-ai':
+        return <NonoAiScreen />;
+      case 'reading-adventure':
+        return <ReadingAdventureScreen />;
+      case 'family-activities':
+        return <FamilyActivitiesScreen />;
+      case 'entertainment-hub':
+        return <EntertainmentHubScreen />;
       default:
         return <HomeScreen />;
     }
@@ -130,17 +143,19 @@ const ScreenRouter: React.FC = () => {
   return (
     <MotionConfig reducedMotion={parentSettings.reducedMotion ? 'always' : 'user'}>
       <AppShell>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={screen}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-          >
-            {renderScreen()}
-          </motion.div>
-        </AnimatePresence>
+        <ErrorBoundary language={language} onResetHome={() => navigate('home')}>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={screen}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            >
+              {renderScreen()}
+            </motion.div>
+          </AnimatePresence>
+        </ErrorBoundary>
         <CelebrationOverlay />
       </AppShell>
     </MotionConfig>

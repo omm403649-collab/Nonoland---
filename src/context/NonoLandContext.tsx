@@ -20,6 +20,8 @@ import {
   AgeGroupId,
   AppScreen,
   AssessmentResult,
+  BuildBlockItem,
+  BuildConstruction,
   Certificate,
   CharacterOutfit,
   ChildAvatarConfig,
@@ -38,14 +40,17 @@ import {
   Level1LessonProgress,
   Level2LessonProgress,
   LocalizedText,
+  MusicNoteEvent,
   OfflineSyncItem,
   ParentAccount,
   ParentSchedulePreferences,
   ParentSettings,
   PetSpeciesId,
   PlacedRoomItem,
+  ReadingStageId,
   RoomConfig,
   SavedDrawing,
+  SharedFamilyActivityRecord,
   SkillId,
   SubscriptionState,
   WorldId,
@@ -226,6 +231,23 @@ interface NonoLandContextValue {
   toggleApproveVideo: (id: string) => void;
   toggleFeatureVideo: (id: string) => void;
   removeCuratedVideo: (id: string) => void;
+  syncUpdatedChildFromServer: (serverChild: ChildProfile) => void;
+  toggleChildAiAssistant: (childId: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
+  recordReadingStage: (input: {
+    stage: ReadingStageId;
+    correctCount: number;
+    totalCount: number;
+  }) => Promise<{ ok: boolean; mastered: boolean; starsAdded: number; error?: string }>;
+  completeFamilyActivity: (input: {
+    activityKey: string;
+    title: LocalizedText;
+    durationMinutes: number;
+    reflectionNote?: string;
+  }) => Promise<{ ok: boolean; starsAdded: number; record?: SharedFamilyActivityRecord }>;
+  saveEntertainmentCreation: (input: {
+    kind: 'music' | 'build' | 'chef' | 'theater' | 'discovery';
+    payload: Record<string, unknown>;
+  }) => Promise<{ ok: boolean; starsAdded: number }>;
 }
 
 const NonoLandContext = createContext<NonoLandContextValue | null>(null);
@@ -1740,6 +1762,256 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }));
   };
 
+  const syncUpdatedChildFromServer = (serverChild: ChildProfile) => {
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) => (c.id === serverChild.id ? serverChild : c)),
+    }));
+  };
+
+  const toggleChildAiAssistant: NonoLandContextValue['toggleChildAiAssistant'] = async (
+    childId,
+    enabled,
+  ) => {
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) =>
+        c.id === childId ? { ...c, aiAssistantEnabled: enabled } : c,
+      ),
+    }));
+
+    if (authSession.authenticated && authSession.csrfToken && !childId.startsWith('demo-')) {
+      try {
+        const res = await fetch(`/api/parent/children/${encodeURIComponent(childId)}/ai-settings`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': authSession.csrfToken,
+          },
+          body: JSON.stringify({ aiAssistantEnabled: enabled }),
+        });
+        const data = await res.json();
+        if (!res.ok) return { ok: false, error: data.error || 'Failed to update AI setting' };
+        if (data.child) syncUpdatedChildFromServer(data.child);
+      } catch {
+        return { ok: false, error: 'Network error updating AI setting' };
+      }
+    }
+    return { ok: true };
+  };
+
+  const recordReadingStage: NonoLandContextValue['recordReadingStage'] = async ({
+    stage,
+    correctCount,
+    totalCount,
+  }) => {
+    if (authSession.authenticated && authSession.csrfToken && !activeChild.id.startsWith('demo-')) {
+      try {
+        const res = await fetch(
+          `/api/children/${encodeURIComponent(activeChild.id)}/reading/complete-stage`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-csrf-token': authSession.csrfToken,
+            },
+            body: JSON.stringify({ stage, correctCount, totalCount }),
+          },
+        );
+        const data = await res.json();
+        if (!res.ok) {
+          return { ok: false, mastered: false, starsAdded: 0, error: data.error || 'Stage locked' };
+        }
+        if (data.child) syncUpdatedChildFromServer(data.child);
+        if (data.mastered) soundEngine.playCelebration();
+        return {
+          ok: true,
+          mastered: Boolean(data.mastered),
+          starsAdded: Number(data.starsAdded || 0),
+        };
+      } catch {
+        return { ok: false, mastered: false, starsAdded: 0, error: 'Network error' };
+      }
+    }
+
+    // Local demo preview progression check
+    const progressMap = { ...(activeChild.readingStageProgress || {}) };
+    if (stage > 1 && !progressMap[stage - 1]?.mastered && activeChild.ageGroup !== '7' && activeChild.ageGroup !== '8') {
+      return {
+        ok: false,
+        mastered: false,
+        starsAdded: 0,
+        error: language === 'ar'
+          ? `أكمل المرحلة ${stage - 1} أولاً لفتح هذه المرحلة!`
+          : `Master Stage ${stage - 1} first to unlock this stage!`,
+      };
+    }
+    const accuracy = Math.round((correctCount / Math.max(1, totalCount)) * 100);
+    const mastered = accuracy >= 75;
+    const prev = progressMap[stage];
+    const starsAdded = mastered && !prev?.mastered ? 4 : mastered ? 1 : 0;
+    progressMap[stage] = {
+      stage,
+      mastered: Boolean(prev?.mastered || mastered),
+      bestAccuracy: Math.max(prev?.bestAccuracy || 0, accuracy),
+      attempts: (prev?.attempts || 0) + 1,
+      completedAt: mastered ? new Date().toISOString() : prev?.completedAt,
+    };
+    setPersisted((prevState) => ({
+      ...prevState,
+      children: prevState.children.map((c) =>
+        c.id === activeChild.id
+          ? {
+              ...c,
+              stars: c.stars + starsAdded,
+              readingStageProgress: progressMap,
+            }
+          : c,
+      ),
+    }));
+    if (mastered) soundEngine.playCelebration();
+    return { ok: true, mastered, starsAdded };
+  };
+
+  const completeFamilyActivity: NonoLandContextValue['completeFamilyActivity'] = async ({
+    activityKey,
+    title,
+    durationMinutes,
+    reflectionNote,
+  }) => {
+    if (authSession.authenticated && authSession.csrfToken && !activeChild.id.startsWith('demo-')) {
+      try {
+        const res = await fetch(`/api/children/${encodeURIComponent(activeChild.id)}/family-activity`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': authSession.csrfToken,
+          },
+          body: JSON.stringify({ activityKey, title, durationMinutes, reflectionNote }),
+        });
+        const data = await res.json();
+        if (res.ok && data.child) {
+          syncUpdatedChildFromServer(data.child);
+          soundEngine.playCelebration();
+          return { ok: true, starsAdded: Number(data.starsAdded || 2), record: data.record };
+        }
+      } catch {
+        // fallback local record
+      }
+    }
+
+    const rec: SharedFamilyActivityRecord = {
+      id: `fam-${Date.now()}`,
+      activityKey,
+      title,
+      durationMinutes,
+      reflectionNote,
+      completedAt: new Date().toISOString(),
+    };
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) =>
+        c.id === activeChild.id
+          ? {
+              ...c,
+              stars: c.stars + 2,
+              totalLearningMinutes: c.totalLearningMinutes + durationMinutes,
+              familyActivitiesCompleted: [rec, ...(c.familyActivitiesCompleted || [])].slice(0, 60),
+              activityTimeline: [
+                {
+                  id: `evt-${Date.now()}`,
+                  timestamp: rec.completedAt,
+                  category: 'family' as const,
+                  title,
+                  detail: {
+                    ar: `نشاط عائلي مشترك (${durationMinutes} دقيقة)`,
+                    en: `Shared family co-play (${durationMinutes} min)`,
+                  },
+                  starsEarned: 2,
+                },
+                ...(c.activityTimeline || []),
+              ].slice(0, 120),
+            }
+          : c,
+      ),
+    }));
+    soundEngine.playCelebration();
+    return { ok: true, starsAdded: 2, record: rec };
+  };
+
+  const saveEntertainmentCreation: NonoLandContextValue['saveEntertainmentCreation'] = async ({
+    kind,
+    payload,
+  }) => {
+    if (authSession.authenticated && authSession.csrfToken && !activeChild.id.startsWith('demo-')) {
+      try {
+        const res = await fetch(`/api/children/${encodeURIComponent(activeChild.id)}/entertainment/save`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': authSession.csrfToken,
+          },
+          body: JSON.stringify({ kind, payload }),
+        });
+        const data = await res.json();
+        if (res.ok && data.child) {
+          syncUpdatedChildFromServer(data.child);
+          soundEngine.playCelebration();
+          return { ok: true, starsAdded: Number(data.starsAdded || 0) };
+        }
+      } catch {
+        // fallback local save
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    let starsAdded = 2;
+    setPersisted((prev) => ({
+      ...prev,
+      children: prev.children.map((c) => {
+        if (c.id !== activeChild.id) return c;
+        if (kind === 'music') {
+          const notes = (payload.notes as MusicNoteEvent[]) || [];
+          const title = String(payload.title || 'My Melody');
+          const next = [{ id: `mus-${Date.now()}`, title, notes, createdAt: nowIso }, ...(c.musicCompositions || [])].slice(0, 20);
+          return { ...c, stars: c.stars + 2, musicCompositions: next };
+        }
+        if (kind === 'build') {
+          const blocks = (payload.blocks as BuildBlockItem[]) || [];
+          const title = String(payload.title || 'My Build');
+          const templateId = (payload.templateId as BuildConstruction['templateId']) || 'free';
+          const next = [{ id: `bld-${Date.now()}`, title, templateId, blocks, createdAt: nowIso }, ...(c.buildConstructions || [])].slice(0, 20);
+          return { ...c, stars: c.stars + 2, buildConstructions: next };
+        }
+        if (kind === 'chef') {
+          const rid = String(payload.recipeId || '');
+          const set = new Set(c.completedRecipes || []);
+          starsAdded = set.has(rid) ? 0 : 2;
+          set.add(rid);
+          return { ...c, stars: c.stars + starsAdded, completedRecipes: Array.from(set) };
+        }
+        if (kind === 'theater') {
+          const sid = String(payload.sceneId || '');
+          const set = new Set(c.completedTheaterScenes || []);
+          starsAdded = set.has(sid) ? 0 : 2;
+          set.add(sid);
+          return { ...c, stars: c.stars + starsAdded, completedTheaterScenes: Array.from(set) };
+        }
+        const tid = String(payload.themeId || '');
+        const set = new Set(c.completedDiscoveryThemes || []);
+        starsAdded = set.has(tid) ? 0 : 2;
+        set.add(tid);
+        return { ...c, stars: c.stars + starsAdded, completedDiscoveryThemes: Array.from(set) };
+      }),
+    }));
+    soundEngine.playCelebration();
+    return { ok: true, starsAdded };
+  };
+
   return (
     <NonoLandContext.Provider
       value={{
@@ -1813,6 +2085,11 @@ export const NonoLandProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         toggleApproveVideo,
         toggleFeatureVideo,
         removeCuratedVideo,
+        syncUpdatedChildFromServer,
+        toggleChildAiAssistant,
+        recordReadingStage,
+        completeFamilyActivity,
+        saveEntertainmentCreation,
       }}
     >
       {children}

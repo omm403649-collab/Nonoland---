@@ -41,7 +41,11 @@ import {
   verifyPassword,
 } from './server/security';
 import type { AuthenticatedRequest, CheckoutSession, ServerDb, StoredChildRecord } from './server/dbTypes';
+import { recordAuditEvent, registerImmutableAuditGuards } from './server/auditLog';
 import { registerGovernanceAndHomeworkRoutes } from './server/governanceAndHomeworkRoutes';
+import { registerNonoAiRoutes } from './server/nonoAiRoutes';
+import { registerReadingAndFamilyRoutes } from './server/readingAndFamilyRoutes';
+import { registerSmartAssessmentRoutes } from './server/smartAssessmentRoutes';
 import { registerTeacherAndLevel2Routes } from './server/teacherRoutes';
 import { registerWorldExperienceRoutes } from './server/worldExperienceRoutes';
 import {
@@ -113,6 +117,8 @@ function getDefaultDb(): ServerDb {
     importBatches: {},
     certificates: {},
     processedSyncKeys: {},
+    smartAssessmentSessions: {},
+    aiUsageDaily: {},
     operationalMetrics: {
       totalApiRequests: 0,
       apiFailures5xx: 0,
@@ -166,6 +172,8 @@ function loadDb(): ServerDb {
         importBatches: parsed.importBatches || {},
         certificates: parsed.certificates || {},
         processedSyncKeys: parsed.processedSyncKeys || {},
+        smartAssessmentSessions: parsed.smartAssessmentSessions || {},
+        aiUsageDaily: parsed.aiUsageDaily || {},
         operationalMetrics: {
           ...def.operationalMetrics,
           ...(parsed.operationalMetrics || {}),
@@ -948,9 +956,25 @@ async function startServer() {
       nextMonthPlan: DEFAULT_NEXT_MONTH_PLAN,
       activeDaysHistory: [],
       activityTimeline: [],
+      aiAssistantEnabled: true,
+      readingStageProgress: {},
+      familyActivitiesCompleted: [],
+      musicCompositions: [],
+      buildConstructions: [],
     };
 
     db.children[childId] = child;
+    recordAuditEvent(db, {
+      eventType: 'CHILD_PROFILE_CHANGE',
+      actorId: user.id,
+      actorRole: user.role,
+      actionType: 'CREATE_CHILD_PROFILE',
+      recordType: 'child_profile',
+      recordId: childId,
+      newValue: { displayName: child.displayName, ageGroup: child.ageGroup, language: child.language },
+      ip: getClientIp(req),
+      summary: `Created child profile ${childId} (${child.displayName})`,
+    });
     saveDb(db);
     res.status(201).json({ child });
   });
@@ -985,6 +1009,13 @@ async function startServer() {
       return res.status(400).json({ error: check.error });
     }
 
+    const prevSnapshot = {
+      displayName: child.displayName,
+      ageGroup: child.ageGroup,
+      language: child.language,
+      aiAssistantEnabled: child.aiAssistantEnabled !== false,
+    };
+
     child.displayName = check.clean.displayName;
     child.ageGroup = nextAge;
     child.language = nextLang;
@@ -993,6 +1024,26 @@ async function startServer() {
     if (patch.companionScarfColor && /^#[0-9A-Fa-f]{6}$/.test(patch.companionScarfColor)) {
       child.companionScarfColor = patch.companionScarfColor;
     }
+    if (typeof patch.aiAssistantEnabled === 'boolean') {
+      child.aiAssistantEnabled = patch.aiAssistantEnabled;
+    }
+    recordAuditEvent(db, {
+      eventType: 'CHILD_PROFILE_CHANGE',
+      actorId: req.authSession!.user.id,
+      actorRole: req.authSession!.user.role,
+      actionType: 'UPDATE_CHILD_PROFILE',
+      recordType: 'child_profile',
+      recordId: child.id,
+      previousValue: prevSnapshot,
+      newValue: {
+        displayName: child.displayName,
+        ageGroup: child.ageGroup,
+        language: child.language,
+        aiAssistantEnabled: child.aiAssistantEnabled !== false,
+      },
+      ip: getClientIp(req),
+      summary: `Updated child profile ${child.id}`,
+    });
     saveDb(db);
     res.json({ child });
   });
@@ -1006,6 +1057,18 @@ async function startServer() {
       if (child === 'untracked-sample') return res.status(404).json({ error: 'Child profile not found' });
       return;
     }
+    recordAuditEvent(db, {
+      eventType: 'CHILD_PROFILE_CHANGE',
+      actorId: req.authSession!.user.id,
+      actorRole: req.authSession!.user.role,
+      actionType: 'DELETE_CHILD_PROFILE',
+      recordType: 'child_profile',
+      recordId: child.id,
+      previousValue: { displayName: child.displayName, ageGroup: child.ageGroup },
+      reason: 'Parent deleted child profile',
+      ip: getClientIp(req),
+      summary: `Deleted child profile ${child.id} (${child.displayName})`,
+    });
     delete db.children[child.id];
     saveDb(db);
     res.json({ deleted: true });
@@ -1561,7 +1624,7 @@ async function startServer() {
     res.json({ logs: db.securityLogs.slice(0, 100) });
   });
 
-  app.post('/api/admin/users/role', requireAdminPermission('view_security_logs'), (req, res) => {
+  app.post('/api/admin/users/role', requireAdminPermission('view_security_logs'), (req: AuthenticatedRequest, res) => {
     const { userId, role } = req.body as { userId?: string; role?: UserRole };
     const allowed: UserRole[] = [
       'parent',
@@ -1576,17 +1639,28 @@ async function startServer() {
     if (!userId || !db.users[userId] || !role || !allowed.includes(role)) {
       return res.status(400).json({ error: 'Valid userId and role are required' });
     }
+    const prevRole = db.users[userId].role;
     db.users[userId].role = role;
     db.users[userId].updatedAt = new Date().toISOString();
-    appendSecurityLog(db.securityLogs, {
+    recordAuditEvent(db, {
       eventType: 'ADMIN_ACTION',
-      summary: `Updated role for ${userId} -> ${role}`,
+      actorId: req.authSession?.user.id,
+      actorRole: req.authSession?.user.role || 'admin',
+      actionType: 'UPDATE_USER_ROLE',
+      recordType: 'user_role',
+      recordId: userId,
+      previousValue: { role: prevRole },
+      newValue: { role },
+      reason: 'Administrator updated user role',
+      ip: getClientIp(req),
+      summary: `Updated role for ${userId}: ${prevRole} -> ${role}`,
     });
     saveDb(db);
     res.json({ user: toSafeUser(db.users[userId]) });
   });
 
-  app.put('/api/admin/exam-config', requireAdminPermission('manage_exam_config'), (req, res) => {
+  app.put('/api/admin/exam-config', requireAdminPermission('manage_exam_config'), (req: AuthenticatedRequest, res) => {
+    const prevCfg = { ...db.examConfig };
     const { examPriceEgp, passingPercentage, questionsPerExam } = req.body as Partial<ExamConfig>;
     if (typeof examPriceEgp === 'number' && examPriceEgp >= 0 && examPriceEgp <= 5000) {
       db.examConfig.examPriceEgp = Math.round(examPriceEgp);
@@ -1597,8 +1671,16 @@ async function startServer() {
     if (typeof questionsPerExam === 'number' && questionsPerExam >= 10 && questionsPerExam <= 60) {
       db.examConfig.questionsPerExam = Math.round(questionsPerExam);
     }
-    appendSecurityLog(db.securityLogs, {
+    recordAuditEvent(db, {
       eventType: 'ADMIN_ACTION',
+      actorId: req.authSession?.user.id,
+      actorRole: req.authSession?.user.role || 'admin',
+      actionType: 'UPDATE_EXAM_CONFIG',
+      recordType: 'exam_config',
+      recordId: 'global',
+      previousValue: prevCfg,
+      newValue: db.examConfig,
+      ip: getClientIp(req),
       summary: `Updated exam config (price=${db.examConfig.examPriceEgp}, pass=${db.examConfig.passingPercentage}%)`,
     });
     saveDb(db);
@@ -1675,12 +1757,21 @@ async function startServer() {
     res.json({ deleted: true });
   });
 
-  app.patch('/api/admin/certificates/:code', requireAdminPermission('manage_certificates'), (req, res) => {
+  app.patch('/api/admin/certificates/:code', requireAdminPermission('manage_certificates'), (req: AuthenticatedRequest, res) => {
     const cert = db.certificates[req.params.code];
     if (!cert) return res.status(404).json({ error: 'Certificate not found' });
+    const prevRevoked = Boolean(cert.revoked);
     cert.revoked = Boolean(req.body.revoked);
-    appendSecurityLog(db.securityLogs, {
+    recordAuditEvent(db, {
       eventType: 'ADMIN_ACTION',
+      actorId: req.authSession?.user.id,
+      actorRole: req.authSession?.user.role || 'admin',
+      actionType: cert.revoked ? 'REVOKE_CERTIFICATE' : 'RESTORE_CERTIFICATE',
+      recordType: 'certificate',
+      recordId: cert.uniqueCode,
+      previousValue: { revoked: prevRevoked },
+      newValue: { revoked: cert.revoked },
+      ip: getClientIp(req),
       summary: `Certificate ${cert.uniqueCode} revoked=${cert.revoked}`,
     });
     saveDb(db);
@@ -1801,6 +1892,32 @@ async function startServer() {
   });
 
   registerWorldExperienceRoutes({
+    app,
+    getDb: () => db,
+    saveDb,
+    requireAuth,
+    assertChildAccess,
+  });
+
+  registerImmutableAuditGuards(app, requireAdminPermission);
+
+  registerNonoAiRoutes({
+    app,
+    getDb: () => db,
+    saveDb,
+    requireAuth,
+    assertChildAccess,
+  });
+
+  registerSmartAssessmentRoutes({
+    app,
+    getDb: () => db,
+    saveDb,
+    requireAuth,
+    assertChildAccess,
+  });
+
+  registerReadingAndFamilyRoutes({
     app,
     getDb: () => db,
     saveDb,

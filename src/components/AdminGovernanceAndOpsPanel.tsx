@@ -349,12 +349,24 @@ export const AdminOpsPanel: React.FC<GovernanceProps> = ({ apiFetch, onNotice, o
 
   const [auditLogs, setAuditLogs] = useState<SecurityEventLog[]>([]);
   const [eventFilter, setEventFilter] = useState('');
+  const [recordFilter, setRecordFilter] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [outcomeFilter, setOutcomeFilter] = useState('');
+  const [auditSearch, setAuditSearch] = useState('');
 
   const loadOps = useCallback(async () => {
+    const qs = new URLSearchParams();
+    if (eventFilter) qs.set('eventType', eventFilter);
+    if (recordFilter) qs.set('recordType', recordFilter);
+    if (roleFilter) qs.set('actorRole', roleFilter);
+    if (outcomeFilter) qs.set('outcome', outcomeFilter);
+    if (auditSearch.trim()) qs.set('q', auditSearch.trim());
+    const auditUrl = `/api/admin/audit-logs${qs.toString() ? `?${qs.toString()}` : ''}`;
+
     const [fRes, iRes, lRes] = await Promise.all([
       apiFetch('/api/config/features'),
       apiFetch('/api/admin/ops/integrity'),
-      apiFetch(`/api/admin/audit-logs${eventFilter ? `?eventType=${encodeURIComponent(eventFilter)}` : ''}`),
+      apiFetch(auditUrl),
     ]);
     if (fRes.ok) {
       const fd = await fRes.json();
@@ -362,7 +374,7 @@ export const AdminOpsPanel: React.FC<GovernanceProps> = ({ apiFetch, onNotice, o
     }
     if (iRes.ok) setIntegrity(await iRes.json());
     if (lRes.ok) setAuditLogs((await lRes.json()).logs || []);
-  }, [apiFetch, eventFilter]);
+  }, [apiFetch, eventFilter, recordFilter, roleFilter, outcomeFilter, auditSearch]);
 
   useEffect(() => {
     void loadOps();
@@ -524,37 +536,134 @@ export const AdminOpsPanel: React.FC<GovernanceProps> = ({ apiFetch, onNotice, o
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-extrabold text-[#27345C] flex items-center gap-2">
             <Activity className="w-5 h-5 text-[#8054D9]" />
-            <span>{language === 'ar' ? 'سجل التدقيق الأمني المحمي' : 'Protected Security Audit Trail'}</span>
+            <span>{language === 'ar' ? 'سجل التدقيق الأمني المحمي (غير قابل للتعديل)' : 'Immutable Security Audit Trail'}</span>
           </h3>
+          <span className="text-[11px] font-extrabold text-[#27345C]/65">
+            {auditLogs.length} {language === 'ar' ? 'سجل مطابق' : 'matching entries'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+          <input
+            type="text"
+            value={auditSearch}
+            onChange={(e) => setAuditSearch(e.target.value)}
+            placeholder={language === 'ar' ? 'بحث في الملخص أو المعرّف...' : 'Search summary, actor, recordId...'}
+            className="h-9 px-3 rounded-xl border border-[#27345C]/20 text-xs font-bold bg-white"
+          />
           <select
             value={eventFilter}
             onChange={(e) => setEventFilter(e.target.value)}
             className="h-9 px-3 rounded-xl border border-[#27345C]/20 text-xs font-bold bg-white"
           >
-            <option value="">All Events</option>
+            <option value="">All Event Types</option>
             <option value="LOGIN_SUCCESS">LOGIN_SUCCESS</option>
             <option value="LOGIN_FAILED">LOGIN_FAILED</option>
+            <option value="AI_SAFETY_BLOCK">AI_SAFETY_BLOCK</option>
+            <option value="PARENT_SETTING_CHANGE">PARENT_SETTING_CHANGE</option>
+            <option value="SMART_ASSESSMENT">SMART_ASSESSMENT</option>
+            <option value="READING_STAGE_COMPLETE">READING_STAGE_COMPLETE</option>
+            <option value="FAMILY_ACTIVITY">FAMILY_ACTIVITY</option>
+            <option value="ENTERTAINMENT_SAVE">ENTERTAINMENT_SAVE</option>
+            <option value="REWARD_REDEEM">REWARD_REDEEM</option>
             <option value="HOMEWORK_ACTION">HOMEWORK_ACTION</option>
             <option value="CONTENT_REVIEW">CONTENT_REVIEW</option>
             <option value="FEATURE_FLAG_CHANGE">FEATURE_FLAG_CHANGE</option>
+            <option value="ADMIN_ACTION">ADMIN_ACTION</option>
+            <option value="TEACHER_ACTION">TEACHER_ACTION</option>
             <option value="OFFLINE_SYNC">OFFLINE_SYNC</option>
             <option value="BACKUP_RESTORE">BACKUP_RESTORE</option>
           </select>
+          <select
+            value={recordFilter}
+            onChange={(e) => setRecordFilter(e.target.value)}
+            className="h-9 px-3 rounded-xl border border-[#27345C]/20 text-xs font-bold bg-white"
+          >
+            <option value="">All Record Types</option>
+            <option value="child">child</option>
+            <option value="user">user</option>
+            <option value="exam">exam</option>
+            <option value="exam_attempt">exam_attempt</option>
+            <option value="assessment">assessment</option>
+            <option value="reading_stage">reading_stage</option>
+            <option value="family_activity">family_activity</option>
+            <option value="entertainment">entertainment</option>
+            <option value="reward">reward</option>
+            <option value="ai_chat">ai_chat</option>
+          </select>
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            className="h-9 px-3 rounded-xl border border-[#27345C]/20 text-xs font-bold bg-white"
+          >
+            <option value="">All Actor Roles</option>
+            <option value="super_admin">super_admin</option>
+            <option value="teacher">teacher</option>
+            <option value="parent">parent</option>
+            <option value="student">student</option>
+          </select>
+          <select
+            value={outcomeFilter}
+            onChange={(e) => setOutcomeFilter(e.target.value)}
+            className="h-9 px-3 rounded-xl border border-[#27345C]/20 text-xs font-bold bg-white"
+          >
+            <option value="">All Outcomes</option>
+            <option value="success">success</option>
+            <option value="blocked">blocked</option>
+            <option value="denied">denied</option>
+            <option value="error">error</option>
+          </select>
         </div>
-        <div className="max-h-72 overflow-y-auto space-y-1.5 text-xs font-bold">
-          {auditLogs.map((lg) => (
-            <div key={lg.id} className="p-2.5 rounded-xl bg-[#FFF8E9]/60 flex flex-wrap justify-between gap-2">
-              <div>
-                <span className="px-2 py-0.5 rounded bg-[#27345C] text-white text-[10px] me-2">
-                  {lg.eventType}
-                </span>
-                <span className="text-[#27345C]">{lg.summary}</span>
+
+        <div className="max-h-80 overflow-y-auto space-y-2 text-xs font-bold">
+          {auditLogs.length === 0 ? (
+            <p className="text-center py-6 text-[#27345C]/60">
+              {language === 'ar' ? 'لا توجد سجلات مطابقة لهذا البحث.' : 'No audit records match these filters.'}
+            </p>
+          ) : (
+            auditLogs.map((lg) => (
+              <div key={lg.id} className="p-3 rounded-xl bg-[#FFF8E9]/70 border border-[#27345C]/10 space-y-1">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="px-2 py-0.5 rounded bg-[#27345C] text-white text-[10px]">
+                      {lg.eventType}
+                    </span>
+                    {lg.outcome && (
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                          lg.outcome === 'denied' || lg.outcome === 'blocked'
+                            ? 'bg-[#FF4D6D]/15 text-[#991B1B]'
+                            : lg.outcome === 'error'
+                              ? 'bg-[#FF9360]/20 text-[#9A3412]'
+                              : 'bg-[#55D98B]/25 text-[#14532D]'
+                        }`}
+                      >
+                        {lg.outcome}
+                      </span>
+                    )}
+                    {lg.recordType && (
+                      <span className="px-2 py-0.5 rounded bg-white border border-[#27345C]/10 text-[10px] text-[#8054D9]">
+                        {lg.recordType}
+                        {lg.recordId ? `:${lg.recordId}` : ''}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[#27345C]/55 tabular-nums text-[11px]">
+                    {lg.actorRole || lg.role || 'anon'}
+                    {lg.actorId ? ` (${lg.actorId})` : ''} · {new Date(lg.createdAt).toLocaleString()}
+                  </span>
+                </div>
+                <p className="text-[#27345C]">{lg.summary}</p>
+                {(lg.reason || lg.previousValue !== undefined || lg.newValue !== undefined) && (
+                  <p className="text-[11px] text-[#27345C]/70 font-mono-num break-all">
+                    {lg.reason ? `Reason: ${lg.reason} · ` : ''}
+                    {lg.previousValue !== undefined ? `Prev: ${lg.previousValue} → ` : ''}
+                    {lg.newValue !== undefined ? `New: ${lg.newValue}` : ''}
+                  </p>
+                )}
               </div>
-              <span className="text-[#27345C]/55 tabular-nums">
-                {lg.role || 'anon'} · {new Date(lg.createdAt).toLocaleString()}
-              </span>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>

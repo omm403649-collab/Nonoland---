@@ -109,6 +109,7 @@ export const ParentDashboardScreen: React.FC = () => {
     logoutParent,
     logoutAllDevices,
     saveLearningPlan,
+    toggleChildAiAssistant,
   } = useNonoLand();
 
   // Parental Gate Challenge (Real password when authenticated; math check in sample preview)
@@ -129,6 +130,8 @@ export const ParentDashboardScreen: React.FC = () => {
   }));
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [scheduleMsg, setScheduleMsg] = useState('');
+  const [aiToggleSaving, setAiToggleSaving] = useState(false);
+  const [aiToggleMsg, setAiToggleMsg] = useState('');
   const [parentOverview, setParentOverview] = useState<{
     child?: { studentUserEmail?: string };
     assignedExams?: Array<{
@@ -631,6 +634,7 @@ export const ParentDashboardScreen: React.FC = () => {
                         <option value="creative">{language === 'ar' ? 'الإبداع' : 'Creative'}</option>
                         <option value="pet">{language === 'ar' ? 'الأليف' : 'Pet'}</option>
                         <option value="reward">{language === 'ar' ? 'المكافآت' : 'Rewards'}</option>
+                        <option value="family">{language === 'ar' ? 'العائلة' : 'Family'}</option>
                       </select>
                       <select
                         value={timelineRangeFilter}
@@ -1064,11 +1068,38 @@ export const ParentDashboardScreen: React.FC = () => {
             </div>
 
             <div className="lg:col-span-5 nono-card rounded-3xl p-6 space-y-3">
-              <h2 className="text-lg font-extrabold text-[#27345C]">
-                {language === 'ar'
-                  ? 'أنشطة منزلية مقترحة بين الأهل والطفل'
-                  : 'Offline Parent-Child Activities'}
-              </h2>
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-extrabold text-[#27345C]">
+                  {language === 'ar'
+                    ? 'أنشطة منزلية ومشتركة مع الطفل'
+                    : 'Shared Parent-Child Activities'}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => navigate('family-activities')}
+                  className="px-3 py-1 rounded-xl bg-[#55D98B]/25 text-[#14532D] text-xs font-extrabold cursor-pointer"
+                >
+                  {language === 'ar' ? 'فتح الأنشطة' : 'Co-Play Hub'}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="p-3 rounded-2xl bg-[#FFF3D1] border border-[#FFD84D]/50">
+                  <p className="font-bold text-[#27345C]/70">
+                    {language === 'ar' ? 'مراحل القراءة المتقنة' : 'Reading Stages'}
+                  </p>
+                  <p className="text-xl font-extrabold text-[#9A3412] font-mono-num mt-0.5">
+                    {Object.values(activeChild.readingStageProgress || {}).filter((s) => s.mastered).length} / 8
+                  </p>
+                </div>
+                <div className="p-3 rounded-2xl bg-[#E2F9EC] border border-[#55D98B]/40">
+                  <p className="font-bold text-[#27345C]/70">
+                    {language === 'ar' ? 'جلسات اللعب العائلي' : 'Family Co-Play'}
+                  </p>
+                  <p className="text-xl font-extrabold text-[#14532D] font-mono-num mt-0.5">
+                    {(activeChild.familyActivitiesCompleted || []).length}
+                  </p>
+                </div>
+              </div>
               <div className="space-y-2.5">
                 {PARENT_OFFLINE_ACTIVITIES.map((act) => (
                   <div key={act.id} className="p-3.5 rounded-2xl bg-[#E2F9EC]/70 border border-[#55D98B]/40">
@@ -1423,6 +1454,56 @@ export const ParentDashboardScreen: React.FC = () => {
                   className="w-5 h-5 accent-[#8054D9] shrink-0"
                 />
               </label>
+
+              {/* Per-Child Nono AI Companion Control */}
+              <div className="p-3.5 rounded-2xl bg-[#E5F6FF]/70 border border-[#39BDF2]/30 space-y-2">
+                <label className="min-h-[44px] flex items-center justify-between gap-3 cursor-pointer">
+                  <div>
+                    <span className="font-extrabold text-sm block text-[#27345C]">
+                      {language === 'ar'
+                        ? `مساعد نونو الذكي (${activeChild.displayName})`
+                        : `Nono AI Assistant (${activeChild.displayName})`}
+                    </span>
+                    <span className="text-xs text-[#27345C]/70">
+                      {language === 'ar'
+                        ? 'مقيّد بالمنهج التعليمي وبحد أقصى ٤٠ رسالة يومياً ويمنع طلب أي معلومات شخصية أو مشتريات.'
+                        : 'Curriculum-scoped, PII-filtered, 40 msg/day cap, zero open browsing or purchases.'}
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    disabled={aiToggleSaving}
+                    checked={activeChild.aiAssistantEnabled !== false}
+                    onChange={async (e) => {
+                      const nextVal = e.target.checked;
+                      setAiToggleSaving(true);
+                      setAiToggleMsg('');
+                      const res = await toggleChildAiAssistant(activeChild.id, nextVal);
+                      setAiToggleSaving(false);
+                      if (res.ok) {
+                        soundEngine.playPop();
+                        setAiToggleMsg(
+                          nextVal
+                            ? language === 'ar'
+                              ? 'تم تفعيل مساعد نونو الذكي لهذا الطفل ✓'
+                              : 'Nono AI enabled for this child ✓'
+                            : language === 'ar'
+                              ? 'تم إيقاف مساعد نونو الذكي لهذا الطفل ✓'
+                              : 'Nono AI paused for this child ✓',
+                        );
+                      } else {
+                        setAiToggleMsg(res.error || 'Error updating AI preference');
+                      }
+                    }}
+                    className="w-5 h-5 accent-[#8054D9] shrink-0"
+                  />
+                </label>
+                {aiToggleMsg && (
+                  <p className="text-xs font-extrabold text-[#14532D] bg-[#E2F9EC] px-2.5 py-1.5 rounded-xl">
+                    {aiToggleMsg}
+                  </p>
+                )}
+              </div>
 
               <div>
                 <div className="flex justify-between text-sm font-bold mb-1">

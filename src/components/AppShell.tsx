@@ -88,10 +88,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               const isActive =
                 screen === item.id ||
                 (item.id === 'map' && (screen === 'world-detail' || screen === 'game' || screen === 'game-results')) ||
-                (item.id === 'fun-zone' && (screen === 'brain-games' || screen === 'creative-studio')) ||
+                (item.id === 'fun-zone' &&
+                  (screen === 'brain-games' || screen === 'creative-studio' || screen === 'entertainment-hub')) ||
                 (item.id === 'my-room' && (screen === 'my-avatar' || screen === 'my-pet')) ||
                 (item.id === 'achievements' && screen === 'reward-shop') ||
-                (item.id === 'stories' && screen === 'story-reader');
+                (item.id === 'stories' && (screen === 'story-reader' || screen === 'reading-adventure'));
               return (
                 <button
                   key={item.id}
@@ -225,6 +226,70 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             )}
           </div>
         </div>
+      {/* Secondary Quick-Launch Strip for New Learning & Creative Hubs */}
+      <div className="bg-white/75 backdrop-blur-sm border-b border-[#27345C]/10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-1.5 flex items-center gap-2 overflow-x-auto no-scrollbar">
+          {(
+            [
+              {
+                id: 'nono-ai' as AppScreen,
+                emoji: '🤖',
+                ar: 'مساعد نونو الذكي',
+                en: 'Nono AI',
+                activeCls: 'bg-[#8054D9] text-white',
+              },
+              {
+                id: 'reading-adventure' as AppScreen,
+                emoji: '📖',
+                ar: 'مغامرة القراءة (٨ مراحل)',
+                en: 'Reading (8 Stages)',
+                activeCls: 'bg-[#FF9360] text-white',
+              },
+              {
+                id: 'entertainment-hub' as AppScreen,
+                emoji: '🎭',
+                ar: 'مركز الترفيه والإبداع',
+                en: 'Entertainment Hub',
+                activeCls: 'bg-[#FF78B7] text-white',
+              },
+              {
+                id: 'family-activities' as AppScreen,
+                emoji: '👨‍👩‍👧',
+                ar: 'أنشطة الأهل والطفل',
+                en: 'Family Co-Play',
+                activeCls: 'bg-[#55D98B] text-[#14532D]',
+              },
+              {
+                id: 'discovery-lab' as AppScreen,
+                emoji: '🔬',
+                ar: 'المختبر والتقييم الذكي',
+                en: 'Smart Lab',
+                activeCls: 'bg-[#39BDF2] text-white',
+              },
+            ] as const
+          ).map((hub) => {
+            const isActive = screen === hub.id;
+            return (
+              <button
+                key={hub.id}
+                type="button"
+                onClick={() => {
+                  soundEngine.playPop();
+                  navigate(hub.id);
+                }}
+                className={`px-3 py-1 rounded-xl text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                  isActive
+                    ? `${hub.activeCls} shadow-sm`
+                    : 'bg-[#FFF8E9] text-[#27345C] border border-[#27345C]/10 hover:border-[#8054D9]/40'
+                }`}
+              >
+                <span>{hub.emoji}</span>
+                <span>{language === 'ar' ? hub.ar : hub.en}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
       </header>
 
       {/* Main Page Content */}

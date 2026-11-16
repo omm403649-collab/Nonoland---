@@ -43,6 +43,7 @@ import {
   validateTeacherQuestionInput,
 } from '../src/utils/validation';
 import type { AuthenticatedRequest, ServerDb, StoredChildRecord } from './dbTypes';
+import { recordAuditEvent } from './auditLog';
 import {
   appendSecurityLog,
   checkRateLimit,
@@ -847,11 +848,16 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
 
     db.users[userId] = teacher;
     db.emailIndex[emailCheck.normalized] = userId;
-    appendSecurityLog(db.securityLogs, {
+    recordAuditEvent(db, {
       eventType: 'ADMIN_ACTION',
       actorId: req.authSession?.user.id,
-      role: req.authSession?.user.role,
+      actorRole: req.authSession?.user.role,
       ip: getClientIp(req),
+      actionType: 'TEACHER_CREATE',
+      recordType: 'user',
+      recordId: userId,
+      newValue: `${emailCheck.normalized}:${cleanStatus}`,
+      outcome: 'success',
       summary: `Admin created teacher ${emailCheck.normalized} (status=${cleanStatus})`,
     });
     saveDb(db);
@@ -1092,14 +1098,22 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
     if (!status || !allowed.includes(status)) {
       return res.status(400).json({ error: 'Invalid exam status' });
     }
+    const prevExamStatus = exam.status;
     exam.status = status;
     if (adminReviewNote !== undefined) exam.adminReviewNote = sanitizeShortText(adminReviewNote, 300);
     exam.updatedAt = new Date().toISOString();
-    appendSecurityLog(db.securityLogs, {
+    recordAuditEvent(db, {
       eventType: 'ADMIN_ACTION',
       actorId: req.authSession?.user.id,
-      role: req.authSession?.user.role,
+      actorRole: req.authSession?.user.role,
       ip: getClientIp(req),
+      actionType: 'EXAM_REVIEW',
+      recordType: 'exam',
+      recordId: exam.id,
+      previousValue: prevExamStatus,
+      newValue: status,
+      reason: adminReviewNote,
+      outcome: 'success',
       summary: `Admin reviewed exam ${exam.id} -> ${status}`,
     });
     saveDb(db);
@@ -2588,11 +2602,16 @@ export function registerTeacherAndLevel2Routes(deps: TeacherRoutesDeps): void {
       child.stars = (child.stars || 0) + 5;
     }
 
-    appendSecurityLog(db.securityLogs, {
+    recordAuditEvent(db, {
       eventType: 'EXAM_COMPLETED',
       actorId: req.authSession?.user.id,
-      role: req.authSession?.user.role,
+      actorRole: req.authSession?.user.role,
       ip: getClientIp(req),
+      actionType: 'EXAM_SUBMIT',
+      recordType: 'exam_attempt',
+      recordId: attempt.id,
+      newValue: `${score}/${totalMarks} (${percentage}%)`,
+      outcome: 'success',
       summary: `Student ${attempt.studentId} submitted teacher exam ${exam.id}: ${score}/${totalMarks} (${percentage}%)`,
     });
     saveDb(db);

@@ -188,6 +188,7 @@ export const HomeScreen: React.FC = () => {
           <img
             src={storyForestImg}
             alt=""
+            decoding="async"
             className="w-full h-full object-cover mix-blend-overlay"
             referrerPolicy="no-referrer"
           />
@@ -389,6 +390,118 @@ export const HomeScreen: React.FC = () => {
             className="min-h-[44px] px-4 rounded-xl bg-white border border-[#27345C]/15 text-[#27345C] font-extrabold text-xs cursor-pointer hover:border-[#39BDF2]"
           >
             {language === 'ar' ? 'ألعاب الذكاء' : 'Brain Games'}
+          </button>
+        </div>
+      </section>
+
+      {/* NEW SMART COMPANIONS & CREATIVE ENTERTAINMENT HUBS */}
+      <section className="space-y-3">
+        <h2 className="text-lg sm:text-xl font-extrabold text-[#27345C]">
+          {language === 'ar' ? 'رفيقك الذكي، القراءة، والترفيه العائلي' : 'Smart Companion, Reading & Family Play'}
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          <button
+            type="button"
+            onClick={() => navigate('nono-ai')}
+            className="nono-card rounded-3xl p-4 text-start bg-gradient-to-br from-[#F3E8FF] to-white border-2 border-[#8054D9]/25 hover:border-[#8054D9] cursor-pointer flex flex-col justify-between gap-2"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-3xl">🤖</span>
+              <span
+                className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold ${
+                  activeChild.aiAssistantEnabled === false
+                    ? 'bg-slate-200 text-[#27345C]/70'
+                    : 'bg-[#8054D9]/15 text-[#8054D9]'
+                }`}
+              >
+                {activeChild.aiAssistantEnabled === false
+                  ? language === 'ar'
+                    ? 'متوقف من الأهل'
+                    : 'Paused by Parent'
+                  : language === 'ar'
+                    ? 'آمن للأطفال'
+                    : 'Child-Safe AI'}
+              </span>
+            </div>
+            <div>
+              <h3 className="font-extrabold text-base text-[#27345C]">
+                {language === 'ar' ? 'اسأل نونو الذكي' : 'Nono AI Assistant'}
+              </h3>
+              <p className="text-xs text-[#27345C]/70 mt-0.5">
+                {language === 'ar'
+                  ? 'شروحات لطيفة، تلميحات ذكية، وقصص تعليمية بالعربي والإنجليزي'
+                  : 'Friendly explanations, progressive hints & safe bilingual Q&A'}
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('reading-adventure')}
+            className="nono-card rounded-3xl p-4 text-start bg-gradient-to-br from-[#FFF3D1] to-white border-2 border-[#FF9360]/30 hover:border-[#FF9360] cursor-pointer flex flex-col justify-between gap-2"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-3xl">📖</span>
+              <span className="px-2 py-0.5 rounded-lg bg-[#FF9360]/15 text-[#9A3412] text-[10px] font-extrabold tabular-nums">
+                {Object.values(activeChild.readingStageProgress || {}).filter((s) => s.mastered).length} / 8
+              </span>
+            </div>
+            <div>
+              <h3 className="font-extrabold text-base text-[#27345C]">
+                {language === 'ar' ? 'مغامرة القراءة' : 'Reading Adventure'}
+              </h3>
+              <p className="text-xs text-[#27345C]/70 mt-0.5">
+                {language === 'ar'
+                  ? '٨ مراحل من الحروف والأصوات إلى قراءة القصص القصيرة'
+                  : '8 guided stages from sounds & phonics to mini-stories'}
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('entertainment-hub')}
+            className="nono-card rounded-3xl p-4 text-start bg-gradient-to-br from-[#FFE6F2] to-white border-2 border-[#FF78B7]/30 hover:border-[#FF78B7] cursor-pointer flex flex-col justify-between gap-2"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-3xl">🎭</span>
+              <span className="px-2 py-0.5 rounded-lg bg-[#FF78B7]/15 text-[#9D174D] text-[10px] font-extrabold">
+                {language === 'ar' ? '٦ عوالم' : '6 Studios'}
+              </span>
+            </div>
+            <div>
+              <h3 className="font-extrabold text-base text-[#27345C]">
+                {language === 'ar' ? 'مركز الترفيه والإبداع' : 'Entertainment Hub'}
+              </h3>
+              <p className="text-xs text-[#27345C]/70 mt-0.5">
+                {language === 'ar'
+                  ? 'الموسيقى، الطاهي الصغير، البناء، الرسم، مسرح نونو، والاكتشاف'
+                  : 'Music, Little Chef, Builder, Art Studio, Theater & Discovery'}
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('family-activities')}
+            className="nono-card rounded-3xl p-4 text-start bg-gradient-to-br from-[#E2F9EC] to-white border-2 border-[#55D98B]/35 hover:border-[#55D98B] cursor-pointer flex flex-col justify-between gap-2"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-3xl">👨‍👩‍👧</span>
+              <span className="px-2 py-0.5 rounded-lg bg-[#55D98B]/25 text-[#14532D] text-[10px] font-extrabold tabular-nums">
+                {(activeChild.familyActivitiesCompleted || []).length} {language === 'ar' ? 'منجز' : 'done'}
+              </span>
+            </div>
+            <div>
+              <h3 className="font-extrabold text-base text-[#27345C]">
+                {language === 'ar' ? 'أنشطة العائلة المشتركة' : 'Family Co-Play'}
+              </h3>
+              <p className="text-xs text-[#27345C]/70 mt-0.5">
+                {language === 'ar'
+                  ? 'تحديات وطبخ وحكايات تفاعلية يشارك فيها الأهل مع الطفل'
+                  : 'Guided shared reading, cooking & creative habits with parents'}
+              </p>
+            </div>
           </button>
         </div>
       </section>

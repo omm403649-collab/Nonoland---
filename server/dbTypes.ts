@@ -1,5 +1,6 @@
 import type express from 'express';
 import type {
+  AdaptiveDifficultyTier,
   AgeGroupId,
   AssignedExamAttempt,
   Certificate,
@@ -19,10 +20,35 @@ import type {
   Level2LessonProgress,
   Level2ProgressionConfig,
   SecurityEventLog,
+  SkillId,
+  SmartAssessmentFormat,
   TeacherExam,
   TeacherQuestion,
 } from '../src/types/nonoland';
 import type { StoredActionToken, StoredSessionRecord, StoredUserRecord } from './security';
+
+export interface StoredSmartAssessmentSession {
+  id: string;
+  childId: string;
+  parentId?: string;
+  ageGroup: AgeGroupId;
+  difficultyTier: AdaptiveDifficultyTier;
+  totalQuestions: number;
+  askedQuestionIds: string[];
+  results: Array<{
+    questionId: string;
+    format: SmartAssessmentFormat;
+    skillId: SkillId;
+    correct: boolean;
+    responseTimeMs: number;
+    difficulty: AdaptiveDifficultyTier;
+  }>;
+  streak: number;
+  consecutiveMistakes: number;
+  hintsUsed: number;
+  finished: boolean;
+  createdAt: string;
+}
 
 export interface CheckoutSession {
   id: string;
@@ -148,6 +174,8 @@ export interface ServerDb {
   importBatches: Record<string, ImportBatchRecord>;
   certificates: Record<string, Certificate & { revoked?: boolean }>;
   processedSyncKeys: Record<string, { childId: string; processedAt: string; summary: string }>;
+  smartAssessmentSessions?: Record<string, StoredSmartAssessmentSession>;
+  aiUsageDaily?: Record<string, number>;
   operationalMetrics: OperationalMetrics;
   securityLogs: SecurityEventLog[];
 }

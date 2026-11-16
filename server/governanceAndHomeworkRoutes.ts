@@ -1302,13 +1302,26 @@ export function registerGovernanceAndHomeworkRoutes(deps: GovernanceHomeworkDeps
   app.get('/api/admin/audit-logs', requireAdminPermission('view_security_logs'), (req, res) => {
     const db = getDb();
     const eventType = req.query.eventType ? String(req.query.eventType) : '';
+    const actionType = req.query.actionType ? String(req.query.actionType) : '';
+    const recordType = req.query.recordType ? String(req.query.recordType) : '';
     const actorId = req.query.actorId ? String(req.query.actorId) : '';
-    const limit = Math.min(300, Math.max(10, Number(req.query.limit || 100)));
+    const actorRole = req.query.actorRole ? String(req.query.actorRole) : '';
+    const outcome = req.query.outcome ? String(req.query.outcome) : '';
+    const q = req.query.q ? String(req.query.q).trim().toLowerCase() : '';
+    const limit = Math.min(500, Math.max(10, Number(req.query.limit || 150)));
 
     const logs = db.securityLogs
       .filter((l) => {
         if (eventType && l.eventType !== eventType) return false;
+        if (actionType && l.actionType !== actionType) return false;
+        if (recordType && l.recordType !== recordType) return false;
         if (actorId && l.actorId !== actorId) return false;
+        if (actorRole && (l.actorRole || l.role) !== actorRole) return false;
+        if (outcome && l.outcome !== outcome) return false;
+        if (q) {
+          const hay = `${l.summary} ${l.eventType} ${l.actionType || ''} ${l.recordType || ''} ${l.recordId || ''} ${l.reason || ''} ${l.actorId || ''}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
         return true;
       })
       .slice(0, limit);
